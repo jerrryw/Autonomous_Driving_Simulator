@@ -1,0 +1,308 @@
+import os
+import cv2
+import time
+import math
+import carla
+import numpy as np
+from ultralytics import YOLO
+
+# global variable
+frame_count = 0
+def process_img(image):
+    # # Check if timestamps increment by 'sensor_tick' value and number of frames match
+    # global frame_count
+    # frame_count += 1
+    # print(f"Frame {image.frame} at {image.timestamp:.2f} sec")
+    # print(f"Captured frame {frame_count} at {image.timestamp:.2f}")
+
+    # Convert CARLA image to NumPy
+    array = np.frombuffer(image.raw_data, dtype=np.uint8)
+    array = array.reshape((image.height, image.width, 4))
+
+    # drop channel A, RGB
+    frame = array[:, :, :3] # [:, :, ::-1]
+
+    # # drop channel A, BGRA -> RGB
+    # frame = array[:, :, :3][:, :, ::-1]
+
+    # Draw green trapezoid for route
+    # height, width = frame.shape[:2]
+    # mid_x         = width // 2
+    # bottom_y      = height
+
+    # # Get vehicle yaw (orientation)
+    # yaw_deg = vehicle.get_transform().rotation.yaw  # degrees
+    # yaw_rad = np.deg2rad(yaw_deg)
+
+    # # Calculate curved offset
+    # offset = int(np.sin(yaw_rad) * 100)  # pixel offset left/right
+
+    # # Define trapezoid path points (simulate curve with yaw offset)
+    # bottom_width = int(width * 0.5)
+    # top_width    = int(width * 0.1)
+    # path_length  = int(height * 0.4)
+    # top_y        = height - path_length
+
+    # pts = np.array(
+    #     [
+    #         [mid_x - top_width + offset, top_y],
+    #         [mid_x + top_width + offset, top_y],
+    #         [mid_x + bottom_width, bottom_y],
+    #         [mid_x - bottom_width, bottom_y]
+    #     ], dtype=np.int32
+    # )
+
+    # Draw curved green path on copied frame (to be YOLO-processed), without permanently affect original frame
+    frame_with_path = frame.copy()
+    # cv2.fillPoly(frame_with_path, [pts], color=(0, 150, 0))  # green trapezoid
+
+    # Run YOLO on the image with the path
+    results   = model(frame_with_path)[0]
+    annotated = results.plot()
+
+    def detect_traffic_light_color(crop_bgr):
+        # Simple HSV color rules to detect RED / GREEN / YELLOW
+        hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
+
+        # Red (two ranges due to hue wrapping)
+        red1 = cv2.inRange(hsv, (0, 70, 50), (10, 255, 255))
+        red2 = cv2.inRange(hsv, (170, 70, 50), (179, 255, 255))
+        red  = cv2.bitwise_or(red1, red2)
+
+        # Green
+        green = cv2.inRange(hsv, (36, 0, 0), (70, 255, 255))
+
+        # Yellow
+        yellow = cv2.inRange(hsv, (15, 0, 0), (36, 255, 255))
+
+        red_count    = cv2.countNonZero(red)
+        green_count  = cv2.countNonZero(green)
+        yellow_count = cv2.countNonZero(yellow)
+
+        print("red_count: ", red_count)
+        print("green_count: ", green_count)
+        print("yellow_count: ", yellow_count)
+        print("\n")
+
+        if red_count > green_count and red_count > yellow_count:
+            return 'Red'
+        elif green_count > red_count and green_count > yellow_count:
+            return 'Green'
+        elif yellow_count > red_count and yellow_count > green_count:
+            return 'Yellow'
+        else:
+            return 'Unknown'
+
+    def detect_traffic_light_by_circles(crop_bgr):
+        height = crop_bgr.shape[0]
+        thirds = height // 3
+
+        # Split into top, middle, bottom
+        top = crop_bgr[0:thirds, :]
+        middle = crop_bgr[thirds:2*thirds, :]
+        bottom = crop_bgr[2*thirds:, :]
+
+        def is_black(img):
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            avg = np.mean(gray)
+            return avg < 60  # Threshold for "black" (tune this if needed)
+
+        top_black = is_black(top)
+        mid_black = is_black(middle)
+        bot_black = is_black(bottom)
+
+        # Apply rules
+        if mid_black and bot_black and not top_black:
+            return 'Red'
+        elif top_black and bot_black and not mid_black:
+            return 'Yellow'
+        elif top_black and mid_black and not bot_black:
+            return 'Green'
+        else:
+            return 'Unknown'
+
+    log_lines = []
+    for box in results.boxes:
+        cls = results.names[int(box.cls)]
+        if cls == 'traffic light':
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            crop = frame[y1:y2, x1:x2]
+
+            inferred_state = detect_traffic_light_color(crop)
+            # inferred_state = detect_traffic_light_by_circles(crop)
+
+            # Overlay label on annotated frame
+            label = f'{inferred_state}'
+            cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+            # Validate with CARLA API
+            for light in world.get_actors().filter('traffic.traffic_light'):
+                if not light.is_alive or not vehicle.is_alive:
+                    continue
+                try:
+                    loc = light.get_transform().location
+                    if vehicle.get_location().distance(loc) < 30:
+                        true_state = light.state  # carla.TrafficLightState.Red etc.
+                        log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
+                        log_lines.append(log_line)
+                        break
+                except RuntimeError:
+                    continue
+
+    with open("self_driving/simulator/logs/output.txt", "a") as log_file:
+        log_file.writelines(log_lines)
+
+    # frame_center_x = frame.shape[1] // 2
+    # frame_middle_right_x = frame_center_x + frame.shape[1] // 3  # adjust if needed
+
+    # # Collect traffic lights on front-right side
+    # traffic_lights = []
+
+    # for box in results.boxes:
+    #     cls = results.names[int(box.cls)]
+    #     if cls == 'traffic light':
+    #         x1, y1, x2, y2 = map(int, box.xyxy[0])
+    #         cx = (x1 + x2) // 2
+    #         if frame_center_x <= cx <= frame_middle_right_x:
+    #             crop = frame[y1:y2, x1:x2]
+    #             dist_to_center = abs(cx - frame_center_x)
+    #             traffic_lights.append({
+    #                 'coords': (x1, y1, x2, y2),
+    #                 'crop': crop,
+    #                 'cx': cx,
+    #                 'distance_to_center': dist_to_center
+    #             })
+
+    # # Sort by how close they are to center (more frontal)
+    # traffic_lights.sort(key=lambda item: item['distance_to_center'])
+
+    # # Take up to 2 most centered
+    # focused_lights = traffic_lights[:2]
+
+    # for light in focused_lights:
+    #     x1, y1, x2, y2 = light['coords']
+    #     crop = light['crop']
+    #     # inferred_state = detect_traffic_light_color(crop)
+    #     inferred_state = detect_traffic_light_by_circles(crop)
+
+    #     # Draw label
+    #     cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 255), 2)
+    #     cv2.putText(annotated, inferred_state, (x1, y1 - 10),
+    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+    #     # Validation (optional)
+    #     for carla_light in world.get_actors().filter('traffic.traffic_light'):
+    #         if not carla_light.is_alive or not vehicle.is_alive:
+    #             continue
+    #         try:
+    #             if vehicle.get_location().distance(carla_light.get_location()) < 60:
+    #                 true_state = carla_light.state
+    #                 log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
+    #                 print(log_line.strip())
+    #                 with open("self_driving/simulator/logs/output.txt", "a") as f:
+    #                     f.write(log_line)
+    #                 break
+    #         except RuntimeError:
+    #             continue
+
+
+    # Show window
+    # cv2.imshow("results", annotated)
+
+    # Save to video
+    video_writer.write(annotated)
+
+def calculate_accuracy(path="self_driving/simulator/logs/output.txt"):
+    total   = 0
+    correct = 0
+
+    with open(path, 'r') as file:
+        for line in file:
+            total += 1
+            true_val     = line.split("True:")[1].split(",")[0].strip().upper()
+            inferred_val = line.split("Inferred:")[1].strip().upper()
+            if true_val == inferred_val:
+                correct += 1
+
+    accuracy = (correct / total) * 100 if total > 0 else 0
+    print(f"Total Samples      : {total}")
+    print(f"Correct Predictions: {correct}")
+    print(f"Accuracy           : {accuracy:.2f}%")
+
+    # Optionally, write the result back to the file
+    # with open("output.txt", "a") as file:
+    #     file.write(f"\n[Summary] Accuracy: {accuracy:.2f}% ({correct}/{total})\n")
+
+if __name__=="__main__":
+    # Connect to CARLA
+    client = carla.Client('localhost', 2000)
+    client.set_timeout(5.0)
+
+    # client.load_world('Town01')
+    world = client.get_world()
+
+    # Get blueprint library
+    blueprint_library = world.get_blueprint_library()
+
+    # Spawn vehicle
+    vehicle_bp  = blueprint_library.filter('vehicle.tesla.model3')[0]
+    spawn_point = world.get_map().get_spawn_points()[0]
+    # print(spawn_point)
+
+    vehicle = world.spawn_actor(vehicle_bp, spawn_point)
+
+    # Autopilot vehicle
+    # TODO: replace with your own suggesting route model
+    vehicle.set_autopilot(False)
+
+    # Attach RGB camera
+    camera_bp = blueprint_library.find('sensor.camera.rgb')
+    camera_bp.set_attribute('image_size_x', '1280')
+    camera_bp.set_attribute('image_size_y', '720')
+    camera_bp.set_attribute('fov', '30.0')
+    # camera_bp.set_attribute('enable_postprocess_effects', 'True')
+    camera_bp.set_attribute('sensor_tick', '0.05') # must match hard-coded fps
+
+    # Front of car
+    # camera_transform = carla.Transform(carla.Location(x=0.5, z=2.0))
+    camera_transform = carla.Transform(carla.Location(z=1.5)) # top of car
+
+    camera = world.spawn_actor(camera_bp, camera_transform, attach_to=vehicle)
+
+    # Load YOLOv8 model
+    # COCO-pretrained
+    # TODO: can use YOLOv11n.pt for more advanced object detection?
+    # Currently using yolov8m.pt for better balance of speed and accuracy
+    model = YOLO('self_driving/simulator/models/yolo11n.pt')
+    model.predict(verbose=False)
+
+    # Create video output directory and writer
+    video_filename = 'self_driving/simulator/logs/yolo_detections.avi'
+    fps            = 20
+    # frame_size     = (800, 600)  # match image_size_x and y
+    frame_size     = (1280, 720)  # match image_size_x and y
+    # frame_size     = (1920, 1080)  # match image_size_x and y
+    fourcc         = cv2.VideoWriter_fourcc(*'XVID')
+    video_writer   = cv2.VideoWriter(video_filename, fourcc, fps, frame_size)
+
+    # Start streaming camera
+    camera.listen(lambda image: process_img(image))
+
+    # Let simulation run
+    time.sleep(10)
+
+    camera.stop()
+    time.sleep(0.5)
+    print("\nCleaning up...")
+    vehicle.destroy()
+    print("    - All Vehicles Destroyed")
+    camera.destroy()
+    print("    - Cameras Destroyed")
+    video_writer.release()
+    print("    - Video Output to yolo_detections.avi")
+    cv2.destroyAllWindows()
+    print("    - Closing all cv2 windows")
+    print("Finished Cleaning.")
+
+    print("\nCalculated Results")
+    calculate_accuracy("self_driving/simulator/logs/output.txt")
