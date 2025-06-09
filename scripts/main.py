@@ -7,6 +7,61 @@ import carla
 import numpy as np
 from ultralytics import YOLO
 
+import torch
+from torchvision import transforms
+from PIL import Image
+import torch.nn as nn
+import torch.nn.functional as F
+
+# --- 1. Define the CNN architecture (same as training) ---
+class TrafficLightCNN(nn.Module):
+    def __init__(self):
+        super(TrafficLightCNN, self).__init__()
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc1 = nn.Linear(32 * 16 * 16, 64)
+        self.fc2 = nn.Linear(64, 4)  # 4 classes: red, yellow, green, black
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))   # Output: (B, 16, 32, 32)
+        x = self.pool(F.relu(self.conv2(x)))   # Output: (B, 32, 16, 16)
+        x = x.view(-1, 32 * 16 * 16)
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
+
+# --- 2. Load model and weights ---
+model = TrafficLightCNN()
+model.load_state_dict(torch.load("self_driving/simulator/models/model.pth", map_location=torch.device('cpu')))
+model.eval()
+
+# --- 3. Define preprocessing (same as training) ---
+transform = transforms.Compose([
+    transforms.Resize((64, 64)),
+    transforms.ToTensor()
+])
+
+# --- 4. Predict on new image ---
+# def classify_traffic_light(image_path):
+def classify_traffic_light(img):
+    # img = Image.open(image_path).convert("RGB")
+    # Step 1: Convert BGR to RGB
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    # Step 2: Convert NumPy RGB to PIL image
+    img_pil = Image.fromarray(img_rgb)
+    x = transform(img_pil).unsqueeze(0)  # shape: [1, 3, 64, 64]
+
+    with torch.no_grad():
+        outputs = model(x)
+        probs = torch.softmax(outputs, dim=1)
+        pred = torch.argmax(probs, dim=1).item()
+
+    classes = ['black', 'green', 'red', 'yellow']  # adjust to match your dataset class order
+    # return classes[pred], probs.numpy()
+    return classes[pred]
+
+
 # global variable
 frame_count = 0
 def process_img(image):
@@ -96,23 +151,56 @@ def process_img(image):
         else:
             return 'Unknown'
 
-    def detect_traffic_light_by_circles(crop_bgr):
-        height = crop_bgr.shape[0]
-        thirds = height // 3
+    def detect_traffic_light_by_circles(crop):
+        # height = crop_bgr.shape[0]
+        # thirds = height // 3
 
-        # Split into top, middle, bottom
-        top = crop_bgr[0:thirds, :]
-        middle = crop_bgr[thirds:2*thirds, :]
-        bottom = crop_bgr[2*thirds:, :]
+        # # Split into top, middle, bottom
+        # top = crop_bgr[0:thirds, :]
+        # middle = crop_bgr[thirds:2*thirds, :]
+        # bottom = crop_bgr[2*thirds:, :]
 
-        def is_black(img):
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            avg = np.mean(gray)
-            return avg < 60  # Threshold for "black" (tune this if needed)
+        crop    = frame[y1:y2, x1:x2]
+        h, w, _ = crop.shape
 
-        top_black = is_black(top)
-        mid_black = is_black(middle)
-        bot_black = is_black(bottom)
+        # Divide vertically into three equal parts
+        third_h = h // 3
+
+        top_crop    = crop[0:third_h, :]
+        middle_crop = crop[third_h:2*third_h, :]
+        bottom_crop = crop[2*third_h:h, :]
+
+        # Unique ID per light crop
+        uid = f"{int(time.time())}_{idx}_{uuid.uuid4().hex[:3]}"
+
+        # Save all three crop levels
+        cv2.imwrite(f"self_driving/simulator/logs/lights/top_{uid}.png", top_crop)
+        cv2.imwrite(f"self_driving/simulator/logs/lights/mid_{uid}.png", middle_crop)
+        cv2.imwrite(f"self_driving/simulator/logs/lights/bot_{uid}.png", bottom_crop)
+
+        def is_black(img, brightness_thresh=40, percent_thresh=0.7):
+            # gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            # avg = np.mean(gray)
+            # return avg < 60  # Threshold for "black" (tune this if needed)
+
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+            # Extract V (brightness) channel
+            v_channel = hsv[:, :, 2]
+
+            # Create mask of "dark" pixels
+            dark_pixels = v_channel < brightness_thresh
+
+            # Calculate ratio of dark pixels
+            dark_ratio = np.sum(dark_pixels) / v_channel.size
+
+            # print(f"{image_path}: dark ratio = {dark_ratio:.2f}")
+
+            return dark_ratio > percent_thresh
+
+        top_black = is_black(top_crop)
+        mid_black = is_black(middle_crop)
+        bot_black = is_black(bottom_crop)
 
         # Apply rules
         if mid_black and bot_black and not top_black:
@@ -213,13 +301,13 @@ def process_img(image):
         x1, y1, x2, y2 = light['coords']
         crop = light['crop']
 
-        # crop = frame[y1:y2, x1:x2]
+        crop = frame[y1:y2, x1:x2]
         h, w, _ = crop.shape
 
         # Divide vertically into three equal parts
         third_h = h // 3
 
-        top_crop = crop[0:third_h, :]
+        top_crop    = crop[0:third_h, :]
         middle_crop = crop[third_h:2*third_h, :]
         bottom_crop = crop[2*third_h:h, :]
 
@@ -228,21 +316,33 @@ def process_img(image):
         # cv2.imwrite("self_driving/simulator/logs/middle_crop.png", middle_crop)
         # cv2.imwrite("self_driving/simulator/logs/bottom_crop.png", bottom_crop)
 
-        # Unique ID per light crop
-        uid = f"{int(time.time())}_{idx}_{uuid.uuid4().hex[:3]}"
+        # # Unique ID per light crop
+        # uid = f"{int(time.time())}_{idx}_{uuid.uuid4().hex[:3]}"
 
-        # Save all three crop levels
-        cv2.imwrite(f"self_driving/simulator/logs/lights/top_{uid}.png", top_crop)
-        cv2.imwrite(f"self_driving/simulator/logs/lights/mid_{uid}.png", middle_crop)
-        cv2.imwrite(f"self_driving/simulator/logs/lights/bot_{uid}.png", bottom_crop)
+        # # Save all three crop levels
+        # cv2.imwrite(f"self_driving/simulator/logs/lights/top_{uid}.png", top_crop)
+        # cv2.imwrite(f"self_driving/simulator/logs/lights/mid_{uid}.png", middle_crop)
+        # cv2.imwrite(f"self_driving/simulator/logs/lights/bot_{uid}.png", bottom_crop)
 
         # inferred_state = detect_traffic_light_color(crop)
         inferred_state = detect_traffic_light_by_circles(crop)
 
+        # inferred_state_top = classify_traffic_light(top_crop)
+        # inferred_state_mid = classify_traffic_light(middle_crop)
+        # inferred_state_bot = classify_traffic_light(bottom_crop)
+
+        # if (inferred_state_bot and inferred_state_mid) == "black":
+        #     inferred_state = "Red"
+        # elif (inferred_state_bot and inferred_state_top) == "black":
+        #     inferred_state = "Yellow"
+        # elif (inferred_state_top and inferred_state_mid) == "black":
+        #     inferred_state = "Green"
+        # else:
+        #     inferred_state = "Unknown"
+
         # Draw label
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 255), 2)
-        # cv2.putText(annotated, inferred_state, (x1, y1 - 10),
-                    # cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        # cv2.putText(annotated, inferred_state, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
         # Validation (optional)
         for carla_light in world.get_actors().filter('traffic.traffic_light'):
@@ -252,6 +352,8 @@ def process_img(image):
                 # TODO: true_state is incorrect
                 if vehicle.get_location().distance(carla_light.get_location()) < 60:
                     true_state = carla_light.state
+                # if vehicle.get_location().is_at_traffic_light():
+                #     true_state = vehicle.get_traffic_light()
                     log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
                     print(log_line.strip())
                     with open("self_driving/simulator/logs/output.txt", "a") as f:
@@ -317,8 +419,7 @@ if __name__=="__main__":
     # camera_bp.set_attribute('enable_postprocess_effects', 'True')
     camera_bp.set_attribute('sensor_tick', '0.05') # must match hard-coded fps
 
-    # Front of car
-    # camera_transform = carla.Transform(carla.Location(x=0.5, z=2.0))
+    # camera_transform = carla.Transform(carla.Location(x=0.5, z=2.0)) # front of car
     camera_transform = carla.Transform(carla.Location(z=1.5)) # top of car
 
     camera = world.spawn_actor(camera_bp, camera_transform, attach_to=vehicle)
@@ -343,7 +444,7 @@ if __name__=="__main__":
     camera.listen(lambda image: process_img(image))
 
     # Let simulation run
-    time.sleep(20)
+    time.sleep(10)
 
     camera.stop()
     time.sleep(0.5)
