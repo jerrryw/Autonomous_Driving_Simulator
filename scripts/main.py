@@ -1,6 +1,7 @@
 import os
 import cv2
 import time
+import uuid
 import math
 import carla
 import numpy as np
@@ -75,6 +76,8 @@ def process_img(image):
         # Yellow
         yellow = cv2.inRange(hsv, (15, 0, 0), (36, 255, 255))
 
+        print("red:", red)
+
         red_count    = cv2.countNonZero(red)
         green_count  = cv2.countNonZero(green)
         yellow_count = cv2.countNonZero(yellow)
@@ -121,90 +124,141 @@ def process_img(image):
         else:
             return 'Unknown'
 
-    log_lines = []
-    for box in results.boxes:
-        cls = results.names[int(box.cls)]
-        if cls == 'traffic light':
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            crop = frame[y1:y2, x1:x2]
-
-            inferred_state = detect_traffic_light_color(crop)
-            # inferred_state = detect_traffic_light_by_circles(crop)
-
-            # Overlay label on annotated frame
-            label = f'{inferred_state}'
-            cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-
-            # Validate with CARLA API
-            for light in world.get_actors().filter('traffic.traffic_light'):
-                if not light.is_alive or not vehicle.is_alive:
-                    continue
-                try:
-                    loc = light.get_transform().location
-                    if vehicle.get_location().distance(loc) < 30:
-                        true_state = light.state  # carla.TrafficLightState.Red etc.
-                        log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
-                        log_lines.append(log_line)
-                        break
-                except RuntimeError:
-                    continue
-
-    with open("self_driving/simulator/logs/output.txt", "a") as log_file:
-        log_file.writelines(log_lines)
-
-    # frame_center_x = frame.shape[1] // 2
-    # frame_middle_right_x = frame_center_x + frame.shape[1] // 3  # adjust if needed
-
-    # # Collect traffic lights on front-right side
-    # traffic_lights = []
-
+    # log_lines = []
     # for box in results.boxes:
     #     cls = results.names[int(box.cls)]
     #     if cls == 'traffic light':
     #         x1, y1, x2, y2 = map(int, box.xyxy[0])
-    #         cx = (x1 + x2) // 2
-    #         if frame_center_x <= cx <= frame_middle_right_x:
-    #             crop = frame[y1:y2, x1:x2]
-    #             dist_to_center = abs(cx - frame_center_x)
-    #             traffic_lights.append({
-    #                 'coords': (x1, y1, x2, y2),
-    #                 'crop': crop,
-    #                 'cx': cx,
-    #                 'distance_to_center': dist_to_center
-    #             })
+    #         print("x1:", x1)
+    #         print("x2:", x2)
+    #         print("y1:", y1)
+    #         print("y2:", y2)
 
-    # # Sort by how close they are to center (more frontal)
-    # traffic_lights.sort(key=lambda item: item['distance_to_center'])
+    #         # crop = frame[y1:y2, x1:x2]
+    #         crop = frame[y1:y2, x1:x2]
+    #         h, w, _ = crop.shape
 
-    # # Take up to 2 most centered
-    # focused_lights = traffic_lights[:2]
+    #         # Divide vertically into three equal parts
+    #         third_h = h // 3
+
+    #         top_crop = crop[0:third_h, :]
+    #         middle_crop = crop[third_h:2*third_h, :]
+    #         bottom_crop = crop[2*third_h:h, :]
+
+    #         # Optional: visualize or debug
+    #         cv2.imwrite("self_driving/simulator/logs/top_crop.png", top_crop)
+    #         cv2.imwrite("self_driving/simulator/logs/middle_crop.png", middle_crop)
+    #         cv2.imwrite("self_driving/simulator/logs/bottom_crop.png", bottom_crop)
+
+
+
+    #         inferred_state = detect_traffic_light_color(crop)
+    #         # inferred_state = detect_traffic_light_by_circles(crop)
+
+    #         # Overlay label on annotated frame
+    #         label = f'{inferred_state}'
+    #         cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+    #         # Validate with CARLA API
+    #         for light in world.get_actors().filter('traffic.traffic_light'):
+    #             if not light.is_alive or not vehicle.is_alive:
+    #                 continue
+    #             try:
+    #                 loc = light.get_transform().location
+    #                 if vehicle.get_location().distance(loc) < 30:
+    #                     true_state = light.state  # carla.TrafficLightState.Red etc.
+    #                     log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
+    #                     log_lines.append(log_line)
+    #                     break
+    #             except RuntimeError:
+    #                 continue
+
+    # with open("self_driving/simulator/logs/output.txt", "a") as log_file:
+    #     log_file.writelines(log_lines)
+
+    frame_center_x = frame.shape[1] // 2
+    frame_middle_right_x = frame_center_x + frame.shape[1] // 3  # adjust if needed
+
+    # Collect traffic lights on front-right side
+    traffic_lights = []
+
+    for box in results.boxes:
+        cls = results.names[int(box.cls)]
+        if cls == 'traffic light':
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            # print("x1:", x1)
+            # print("x2:", x2)
+            # print("y1:", y1)
+            # print("y2:", y2)
+
+            cx = (x1 + x2) // 2
+            if frame_center_x <= cx <= frame_middle_right_x:
+                crop = frame[y1:y2, x1:x2]
+                dist_to_center = abs(cx - frame_center_x)
+                traffic_lights.append({
+                    'coords': (x1, y1, x2, y2),
+                    'crop': crop,
+                    'cx': cx,
+                    'distance_to_center': dist_to_center
+                })
+
+    # Sort by how close they are to center (more frontal)
+    traffic_lights.sort(key=lambda item: item['distance_to_center'])
+
+    # Take up to 2 most centered
+    focused_lights = traffic_lights[:2]
 
     # for light in focused_lights:
-    #     x1, y1, x2, y2 = light['coords']
-    #     crop = light['crop']
-    #     # inferred_state = detect_traffic_light_color(crop)
-    #     inferred_state = detect_traffic_light_by_circles(crop)
+    for idx, light in enumerate(focused_lights):
+        x1, y1, x2, y2 = light['coords']
+        crop = light['crop']
 
-    #     # Draw label
-    #     cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 255), 2)
-    #     cv2.putText(annotated, inferred_state, (x1, y1 - 10),
-    #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        # crop = frame[y1:y2, x1:x2]
+        h, w, _ = crop.shape
 
-    #     # Validation (optional)
-    #     for carla_light in world.get_actors().filter('traffic.traffic_light'):
-    #         if not carla_light.is_alive or not vehicle.is_alive:
-    #             continue
-    #         try:
-    #             if vehicle.get_location().distance(carla_light.get_location()) < 60:
-    #                 true_state = carla_light.state
-    #                 log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
-    #                 print(log_line.strip())
-    #                 with open("self_driving/simulator/logs/output.txt", "a") as f:
-    #                     f.write(log_line)
-    #                 break
-    #         except RuntimeError:
-    #             continue
+        # Divide vertically into three equal parts
+        third_h = h // 3
 
+        top_crop = crop[0:third_h, :]
+        middle_crop = crop[third_h:2*third_h, :]
+        bottom_crop = crop[2*third_h:h, :]
+
+        # Optional: visualize or debug
+        # cv2.imwrite("self_driving/simulator/logs/top_crop.png", top_crop)
+        # cv2.imwrite("self_driving/simulator/logs/middle_crop.png", middle_crop)
+        # cv2.imwrite("self_driving/simulator/logs/bottom_crop.png", bottom_crop)
+
+        # Unique ID per light crop
+        uid = f"{int(time.time())}_{idx}_{uuid.uuid4().hex[:3]}"
+
+        # Save all three crop levels
+        cv2.imwrite(f"self_driving/simulator/logs/lights/top_{uid}.png", top_crop)
+        cv2.imwrite(f"self_driving/simulator/logs/lights/mid_{uid}.png", middle_crop)
+        cv2.imwrite(f"self_driving/simulator/logs/lights/bot_{uid}.png", bottom_crop)
+
+        # inferred_state = detect_traffic_light_color(crop)
+        inferred_state = detect_traffic_light_by_circles(crop)
+
+        # Draw label
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 255), 2)
+        # cv2.putText(annotated, inferred_state, (x1, y1 - 10),
+                    # cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+        # Validation (optional)
+        for carla_light in world.get_actors().filter('traffic.traffic_light'):
+            if not carla_light.is_alive or not vehicle.is_alive:
+                continue
+            try:
+                # TODO: true_state is incorrect
+                if vehicle.get_location().distance(carla_light.get_location()) < 60:
+                    true_state = carla_light.state
+                    log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
+                    print(log_line.strip())
+                    with open("self_driving/simulator/logs/output.txt", "a") as f:
+                        f.write(log_line)
+                    break
+            except RuntimeError:
+                continue
 
     # Show window
     # cv2.imshow("results", annotated)
@@ -259,7 +313,7 @@ if __name__=="__main__":
     camera_bp = blueprint_library.find('sensor.camera.rgb')
     camera_bp.set_attribute('image_size_x', '1280')
     camera_bp.set_attribute('image_size_y', '720')
-    camera_bp.set_attribute('fov', '30.0')
+    camera_bp.set_attribute('fov', '40.0')
     # camera_bp.set_attribute('enable_postprocess_effects', 'True')
     camera_bp.set_attribute('sensor_tick', '0.05') # must match hard-coded fps
 
@@ -271,10 +325,10 @@ if __name__=="__main__":
 
     # Load YOLOv8 model
     # COCO-pretrained
-    # TODO: can use YOLOv11n.pt for more advanced object detection?
+    # TODO: can use yolo11n.pt for more advanced object detection?
     # Currently using yolov8m.pt for better balance of speed and accuracy
-    model = YOLO('self_driving/simulator/models/yolo11n.pt')
-    model.predict(verbose=False)
+    model = YOLO('self_driving/simulator/models/yolo11m.pt')
+    # model.predict(verbose=False)
 
     # Create video output directory and writer
     video_filename = 'self_driving/simulator/logs/yolo_detections.avi'
@@ -289,7 +343,7 @@ if __name__=="__main__":
     camera.listen(lambda image: process_img(image))
 
     # Let simulation run
-    time.sleep(10)
+    time.sleep(20)
 
     camera.stop()
     time.sleep(0.5)
