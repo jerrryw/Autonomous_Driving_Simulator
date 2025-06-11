@@ -231,7 +231,9 @@ def process_img(image):
             # crop = frame[y1:y2, x1:x2]
             crop = frame[y1:y2, x1:x2]
 
-            filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{counter}.png")
+            uid = f"{int(time.time())}_{counter}_{uuid.uuid4().hex[:3]}"
+
+            filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{uid}.png")
             cv2.imwrite(filename, crop)
             counter += 1
 
@@ -423,6 +425,7 @@ if __name__=="__main__":
     # Autopilot vehicle
     # TODO: replace with your own suggesting route model
     vehicle.set_autopilot(True)
+    # vehicle.set_autopilot(False)
 
     # Attach RGB camera
     camera_bp = blueprint_library.find('sensor.camera.rgb')
