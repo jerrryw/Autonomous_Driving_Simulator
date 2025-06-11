@@ -34,7 +34,7 @@ transform = transforms.Compose([
 ])
 
 # Dataset
-dataset = datasets.ImageFolder('self_driving/simulator/data', transform=transform)
+dataset = datasets.ImageFolder('self_driving/simulator/data/color', transform=transform)
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 # Model, loss, optimizer
