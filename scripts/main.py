@@ -31,9 +31,9 @@ class TrafficLightCNN(nn.Module):
         return self.fc2(x)
 
 # --- 2. Load model and weights ---
-model = TrafficLightCNN()
-model.load_state_dict(torch.load("self_driving/simulator/models/traffic_light_color_model.pth", map_location=torch.device('cpu')))
-model.eval()
+cnn_model = TrafficLightCNN()
+cnn_model.load_state_dict(torch.load("self_driving/simulator/models/traffic_light_color_model.pth", map_location=torch.device('cpu')))
+cnn_model.eval()
 
 # --- 3. Define preprocessing (same as training) ---
 transform = transforms.Compose([
@@ -43,28 +43,30 @@ transform = transforms.Compose([
 
 # --- 4. Predict on new image ---
 def classify_traffic_light(img):
-    # Step 1: Convert BGR to RGB
+    # Assume top_crop is a NumPy array from OpenCV (BGR)
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # Step 2: Convert NumPy RGB to PIL image
     img_pil = Image.fromarray(img_rgb)
 
-    # --- 3. Define preprocessing (same as training) ---
+    # Define the transform (must match training)
     transform = transforms.Compose([
         transforms.Resize((64, 64)),
-        transforms.ToTensor()
+        transforms.ToTensor()  # Converts PIL to Tensor, shape [C, H, W], range [0, 1]
     ])
 
-    x = transform(img_pil).unsqueeze(0)  # shape: [1, 3, 64, 64]
+    # Convert to PyTorch tensor with batch dimension
+    x = transform(img_pil).unsqueeze(0) # shape: [1, 3, 64, 64]
 
     with torch.no_grad():
-        outputs = model(x)
+        outputs = cnn_model(x)
+
+        if isinstance(outputs, (list, tuple)):
+            outputs = outputs[0]  # Unpack the tensor if wrapped in a list/tuple
+
         probs = torch.softmax(outputs, dim=1)
         pred = torch.argmax(probs, dim=1).item()
 
     classes = ['black', 'green', 'red', 'yellow']  # adjust to match your dataset class order
-    # return classes[pred], probs.numpy()
-    return classes[pred]
+    return classes[pred], probs.numpy()
 
 # TODO: determine if yolo detected traffic light is facing toward our vehicle
 def is_traffic_light(image):
@@ -101,7 +103,7 @@ def process_image(image):
 
     # identify all traffic lights in front
     log_lines = []
-    for box in results.boxes:
+    for idx, box in enumerate(results.boxes):
         cls = results.names[int(box.cls)]
         if cls == 'traffic light':
             x1, y1, x2, y2 = map(int, box.xyxy[0])
@@ -124,14 +126,24 @@ def process_image(image):
             middle_crop = crop[third_h:2*third_h, :]
             bottom_crop = crop[2*third_h:h, :]
 
-            # take picture lights color: red/yellow/green
-            # cv2.imwrite("self_driving/simulator/logs/color_top_crop.png", top_crop)
-            # cv2.imwrite("self_driving/simulator/logs/color_middle_crop.png", middle_crop)
-            # cv2.imwrite("self_driving/simulator/logs/color_bottom_crop.png", bottom_crop)
+            # print(top_crop.dtype)
+            # exit(1)
+
+            # # Unique ID per light crop
+            # uid = f"{int(time.time())}_{idx}_{uuid.uuid4().hex[:3]}"
+
+            # # Save all three crop levels
+            # cv2.imwrite(f"self_driving/simulator/logs/color_lights/top_{uid}.png", top_crop)
+            # cv2.imwrite(f"self_driving/simulator/logs/color_lights/mid_{uid}.png", middle_crop)
+            # cv2.imwrite(f"self_driving/simulator/logs/color_lights/bot_{uid}.png", bottom_crop)
 
             inferred_state_top = classify_traffic_light(top_crop)
             inferred_state_mid = classify_traffic_light(middle_crop)
             inferred_state_bot = classify_traffic_light(bottom_crop)
+
+            # inferred_state_top = classify_traffic_light(f"self_driving/simulator/logs/color_lights/top_{uid}.png")
+            # inferred_state_mid = classify_traffic_light(f"self_driving/simulator/logs/color_lights/mid_{uid}.png")
+            # inferred_state_bot = classify_traffic_light(f"self_driving/simulator/logs/color_lights/bot_{uid}.png")
 
             if (inferred_state_bot and inferred_state_mid) == "black":
                 inferred_state = "Red"
