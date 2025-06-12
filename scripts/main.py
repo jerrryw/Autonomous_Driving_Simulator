@@ -5,13 +5,13 @@ import uuid
 import math
 import carla
 import numpy as np
+from PIL import Image
 from ultralytics import YOLO
 
 import torch
-from torchvision import transforms
-from PIL import Image
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import transforms
 
 # --- 1. Define the CNN architecture (same as training) ---
 class TrafficLightCNN(nn.Module):
@@ -31,9 +31,9 @@ class TrafficLightCNN(nn.Module):
         return self.fc2(x)
 
 # --- 2. Load model and weights ---
-cnn_model = TrafficLightCNN()
-cnn_model.load_state_dict(torch.load("self_driving/simulator/models/traffic_light_color_model.pth", map_location=torch.device('cpu')))
-cnn_model.eval()
+color_model = TrafficLightCNN()
+color_model.load_state_dict(torch.load("self_driving/simulator/models/traffic_light_color_model.pth", map_location=torch.device('cpu')))
+color_model.eval()
 
 # --- 3. Define preprocessing (same as training) ---
 transform = transforms.Compose([
@@ -47,17 +47,17 @@ def classify_traffic_light(img):
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img_pil = Image.fromarray(img_rgb)
 
-    # Define the transform (must match training)
-    transform = transforms.Compose([
-        transforms.Resize((64, 64)),
-        transforms.ToTensor()  # Converts PIL to Tensor, shape [C, H, W], range [0, 1]
-    ])
+    # # Define the transform (must match training)
+    # transform = transforms.Compose([
+    #     transforms.Resize((64, 64)),
+    #     transforms.ToTensor()  # Converts PIL to Tensor, shape [C, H, W], range [0, 1]
+    # ])
 
     # Convert to PyTorch tensor with batch dimension
     x = transform(img_pil).unsqueeze(0) # shape: [1, 3, 64, 64]
 
     with torch.no_grad():
-        outputs = cnn_model(x)
+        outputs = color_model(x)
 
         if isinstance(outputs, (list, tuple)):
             outputs = outputs[0]  # Unpack the tensor if wrapped in a list/tuple
@@ -68,9 +68,56 @@ def classify_traffic_light(img):
     classes = ['black', 'green', 'red', 'yellow']  # adjust to match your dataset class order
     return classes[pred], probs.numpy()
 
+# -----------------------------------------------------------------------------------------------------------------------
+class TrafficDirectionCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.model = nn.Sequential(
+            nn.Conv2d(3, 16, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
+            nn.Conv2d(16, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
+            nn.Flatten(),
+            nn.Linear(32 * 16 * 16, 64), nn.ReLU(),
+            nn.Linear(64, 1), nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+# Load the model
+light_model =TrafficDirectionCNN()
+light_model.load_state_dict(torch.load("self_driving/simulator/models/is_traffic_light_model.pth", map_location='cpu'))
+light_model.eval()
+
+# Define transforms (must match training)
+transform = transforms.Compose([
+    transforms.Resize((64, 64)),
+    transforms.ToTensor(),
+])
+
+# Define class names (depends on your folder structure)
+class_names = ['false', 'true']
+
 # TODO: determine if yolo detected traffic light is facing toward our vehicle
-def is_traffic_light(image):
-    pass
+def is_traffic_light(img):
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img_pil = Image.fromarray(img_rgb)
+
+    x = transform(img_pil).unsqueeze(0)  # Add batch dim: [1, 3, 64, 64]
+
+    with torch.no_grad():
+        output = light_model(x)
+
+        if isinstance(outputs, (list, tuple)):
+            outputs = outputs[0]  # Unpack the tensor if wrapped in a list/tuple
+
+        probs = torch.softmax(output, dim=1)
+        predicted_class = torch.argmax(probs, dim=1).item()
+        confidence = probs[0][predicted_class].item()
+
+    print(f"Prediction: {class_names[predicted_class]} (Confidence: {confidence:.2f})")
+    return class_names[predicted_class]
+
+# -----------------------------------------------------------------------------------------------------------------------
 
 # global variable
 # frame_count = 0 # for sensor tick
@@ -98,7 +145,7 @@ def process_image(image):
     frame_with_path = frame.copy()
 
     # Run YOLO on the image with the path
-    results   = model(frame_with_path)[0]
+    results   = yolo_model(frame_with_path)[0]
     annotated = results.plot()
 
     # identify all traffic lights in front
@@ -109,6 +156,9 @@ def process_image(image):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
 
             crop = frame[y1:y2, x1:x2]
+
+            # TODO: complete if-statement here, indent all below
+            # if (is_traffic_light(crop)):
 
             # Take pictures of traffic lights
             # global counter
@@ -237,7 +287,7 @@ if __name__=="__main__":
     # Load YOLO model
     # COCO-pretrained
     # default used yolov8n.pt
-    model = YOLO('self_driving/simulator/models/yolo11m.pt')
+    yolo_model = YOLO('self_driving/simulator/models/yolo11m.pt')
 
     # Create video output directory and writer
     video_filename = 'self_driving/simulator/logs/yolo_detections.avi'
