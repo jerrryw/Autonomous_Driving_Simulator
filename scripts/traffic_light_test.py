@@ -44,10 +44,12 @@ def predict(image_path):
         confidence = probs[0][predicted_class].item()
 
     print(f"Prediction: {class_names[predicted_class]} (Confidence: {confidence:.2f})")
+    return class_names[predicted_class]
 
 # Example usage:
 # python predict.py path/to/image.png
 if __name__ == "__main__":
-    image_path = "self_driving/simulator/data/light/true/traffic_light_1749585861_0_789.png"
-    # image_path = "self_driving/simulator/data/light/false/traffic_light_1749585861_3_38f.png"
-    predict(image_path)
+    # image_path = "self_driving/data/light/true/traffic_light_1749585861_0_789.png"
+    image_path = "self_driving/data/light/false/traffic_light_1749585861_3_38f.png"
+    val = predict(image_path)
+    print(val)
