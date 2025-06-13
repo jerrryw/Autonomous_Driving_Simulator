@@ -4,6 +4,7 @@ import time
 import uuid
 import math
 import carla
+import inspect
 import numpy as np
 from PIL import Image
 from ultralytics import YOLO
@@ -84,7 +85,7 @@ class TrafficDirectionCNN(nn.Module):
         return self.model(x)
 
 # Load the model
-light_model =TrafficDirectionCNN()
+light_model = TrafficDirectionCNN()
 light_model.load_state_dict(torch.load("self_driving/simulator/models/is_traffic_light_model.pth", map_location='cpu'))
 light_model.eval()
 
@@ -97,7 +98,7 @@ transform = transforms.Compose([
 # Define class names (depends on your folder structure)
 class_names = ['false', 'true']
 
-# TODO: determine if yolo detected traffic light is facing toward our vehicle
+# determine if yolo detected traffic light is facing toward our vehicle
 def is_traffic_light(img):
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img_pil = Image.fromarray(img_rgb)
@@ -105,17 +106,19 @@ def is_traffic_light(img):
     x = transform(img_pil).unsqueeze(0)  # Add batch dim: [1, 3, 64, 64]
 
     with torch.no_grad():
-        output = light_model(x)
+        outputs = light_model(x)
 
         if isinstance(outputs, (list, tuple)):
             outputs = outputs[0]  # Unpack the tensor if wrapped in a list/tuple
 
-        probs = torch.softmax(output, dim=1)
+        probs = torch.softmax(outputs, dim=1)
         predicted_class = torch.argmax(probs, dim=1).item()
         confidence = probs[0][predicted_class].item()
 
-    print(f"Prediction: {class_names[predicted_class]} (Confidence: {confidence:.2f})")
-    return class_names[predicted_class]
+    # TODO: produced result is incorrect, need to re-train model
+    # print(f"Prediction: {class_names[predicted_class]} (Confidence: {confidence:.2f})")
+    # return class_names[predicted_class]
+    return True
 
 # -----------------------------------------------------------------------------------------------------------------------
 
@@ -138,8 +141,7 @@ def process_image(image):
 
     # # drop channel A, BGRA -> RGB
     # frame = array[:, :, :3][:, :, ::-1]
-
-    # TODO: Draw green trapezoid for route
+    # TODO: Draw green trapezoid for route suggestion
     # Draw curved green path on copied frame (to be YOLO-processed), without permanently affect original frame
 
     frame_with_path = frame.copy()
@@ -157,72 +159,79 @@ def process_image(image):
 
             crop = frame[y1:y2, x1:x2]
 
-            # TODO: complete if-statement here, indent all below
-            # if (is_traffic_light(crop)):
+            # print("idx =", idx)
+            # print("-----------------is_traffic_light(crop)-----------------", is_traffic_light(crop))
 
-            # Take pictures of traffic lights
-            # global counter
-            # uid = f"{int(time.time())}_{counter}_{uuid.uuid4().hex[:3]}"
-            # filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{uid}.png")
-            # cv2.imwrite(filename, crop)
-            # counter += 1
+            if (is_traffic_light(crop)):
+                # Take pictures of traffic lights
+                # global counter
+                # uid = f"{int(time.time())}_{counter}_{uuid.uuid4().hex[:3]}"
+                # filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{uid}.png")
+                # cv2.imwrite(filename, crop)
+                # counter += 1
 
-            h, w, _ = crop.shape
+                h, w, _ = crop.shape
 
-            # Divide vertically into three equal parts
-            third_h = h // 3
+                # Divide vertically into three equal parts
+                third_h = h // 3
 
-            top_crop = crop[0:third_h, :]
-            middle_crop = crop[third_h:2*third_h, :]
-            bottom_crop = crop[2*third_h:h, :]
+                top_crop = crop[0:third_h, :]
+                mid_crop = crop[third_h:2*third_h, :]
+                bot_crop = crop[2*third_h:h, :]
 
-            # print(top_crop.dtype)
-            # exit(1)
+                # # Unique ID per light crop
+                # uid = f"{int(time.time())}_{idx}_{uuid.uuid4().hex[:3]}"
 
-            # # Unique ID per light crop
-            # uid = f"{int(time.time())}_{idx}_{uuid.uuid4().hex[:3]}"
+                # # Save all three crop levels
+                # cv2.imwrite(f"self_driving/simulator/logs/color_lights/top_{uid}.png", top_crop)
+                # cv2.imwrite(f"self_driving/simulator/logs/color_lights/mid_{uid}.png", mid_crop)
+                # cv2.imwrite(f"self_driving/simulator/logs/color_lights/bot_{uid}.png", bot_crop)
 
-            # # Save all three crop levels
-            # cv2.imwrite(f"self_driving/simulator/logs/color_lights/top_{uid}.png", top_crop)
-            # cv2.imwrite(f"self_driving/simulator/logs/color_lights/mid_{uid}.png", middle_crop)
-            # cv2.imwrite(f"self_driving/simulator/logs/color_lights/bot_{uid}.png", bottom_crop)
+                inferred_state_top = classify_traffic_light(top_crop)
+                inferred_state_mid = classify_traffic_light(mid_crop)
+                inferred_state_bot = classify_traffic_light(bot_crop)
 
-            inferred_state_top = classify_traffic_light(top_crop)
-            inferred_state_mid = classify_traffic_light(middle_crop)
-            inferred_state_bot = classify_traffic_light(bottom_crop)
+                if (inferred_state_bot and inferred_state_mid) == "black":
+                    inferred_state = "Red"
+                elif (inferred_state_bot and inferred_state_top) == "black":
+                    inferred_state = "Yellow"
+                elif (inferred_state_top and inferred_state_mid) == "black":
+                    inferred_state = "Green"
+                else:
+                    inferred_state = "Unknown"
 
-            # inferred_state_top = classify_traffic_light(f"self_driving/simulator/logs/color_lights/top_{uid}.png")
-            # inferred_state_mid = classify_traffic_light(f"self_driving/simulator/logs/color_lights/mid_{uid}.png")
-            # inferred_state_bot = classify_traffic_light(f"self_driving/simulator/logs/color_lights/bot_{uid}.png")
+                # Overlay label on annotated frame
+                label = f'{inferred_state}'
+                # cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 255), 2)
+                # cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
-            if (inferred_state_bot and inferred_state_mid) == "black":
-                inferred_state = "Red"
-            elif (inferred_state_bot and inferred_state_top) == "black":
-                inferred_state = "Yellow"
-            elif (inferred_state_top and inferred_state_mid) == "black":
-                inferred_state = "Green"
-            else:
-                inferred_state = "Unknown"
+                # Validate with CARLA API
+                # TODO: true_state is incorrect
+                # for light in world.get_actors().filter('traffic.traffic_light'):
+                #     if not light.is_alive or not vehicle.is_alive:
+                #         continue
+                #     try:
+                #         loc = light.get_transform().location
+                #         if vehicle.get_location().distance(loc) < 30:
+                #             true_state = light.state  # carla.TrafficLightState.Red etc.
+                #             log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
+                #             log_lines.append(log_line)
+                #             break
+                #     except RuntimeError:
+                #         continue
 
-            # Overlay label on annotated frame
-            label = f'{inferred_state}'
-            # cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 255), 2)
-            # cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                print("vehicle.is_at_traffic_light() = ", vehicle.is_at_traffic_light())
 
-            # Validate with CARLA API
-            # TODO: true_state is incorrect
-            for light in world.get_actors().filter('traffic.traffic_light'):
-                if not light.is_alive or not vehicle.is_alive:
-                    continue
-                try:
-                    loc = light.get_transform().location
-                    if vehicle.get_location().distance(loc) < 30:
-                        true_state = light.state  # carla.TrafficLightState.Red etc.
-                        log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
+                if vehicle.is_at_traffic_light():
+                    traffic_light = vehicle.get_traffic_light()
+                    print("Line", inspect.currentframe().f_lineno)
+
+                    if traffic_light and traffic_light.is_alive:
+                        true_state = traffic_light.state
+                        log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
                         log_lines.append(log_line)
-                        break
-                except RuntimeError:
-                    continue
+
+    print("Line", inspect.currentframe().f_lineno)
 
     with open("self_driving/simulator/logs/output.txt", "a") as log_file:
         log_file.writelines(log_lines)
@@ -269,8 +278,7 @@ if __name__=="__main__":
 
     # Autopilot vehicle
     # TODO: replace with your own suggesting route model
-    # vehicle.set_autopilot(True)
-    vehicle.set_autopilot(False)
+    vehicle.set_autopilot(True)
 
     # Attach RGB camera
     camera_bp = blueprint_library.find('sensor.camera.rgb')
@@ -300,7 +308,7 @@ if __name__=="__main__":
     camera.listen(lambda image: process_image(image))
 
     # Let simulation run
-    time.sleep(5)
+    time.sleep(10)
 
     camera.stop()
     time.sleep(0.5)
