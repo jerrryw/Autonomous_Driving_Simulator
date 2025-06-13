@@ -11,8 +11,8 @@ transform = transforms.Compose([
 ])
 
 # Load data
-train_data = datasets.ImageFolder("self_driving/simulator/data/light_split/train", transform=transform)
-valid_data = datasets.ImageFolder("self_driving/simulator/data/light_split/valid", transform=transform)
+train_data = datasets.ImageFolder("self_driving/data/light_split/train", transform=transform)
+valid_data = datasets.ImageFolder("self_driving/data/light_split/valid", transform=transform)
 
 train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
 valid_loader = DataLoader(valid_data, batch_size=32)
