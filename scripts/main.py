@@ -101,13 +101,13 @@ def is_traffic_light(img):
     # TODO: produced result is incorrect, need to re-train model
     # print(f"Prediction: {class_names[predicted_class]} (Confidence: {confidence:.2f})")
     # return class_names[predicted_class]
-    return True
+    return False
 
 # -----------------------------------------------------------------------------------------------------------------------
 
 # global variable
 # frame_count = 0 # for sensor tick
-# counter     = 0 # for traffic light image capture
+counter     = 0 # for traffic light image capture
 def process_image(image):
     # Check if timestamps increment by 'sensor_tick' value and number of frames match
     # global frame_count
@@ -146,13 +146,14 @@ def process_image(image):
             # print("idx =", idx)
             # print("-----------------is_traffic_light(crop)-----------------", is_traffic_light(crop))
 
+            # Take pictures of traffic lights
+            global counter
+            uid = f"{int(time.time())}_{counter}_{uuid.uuid4().hex[:3]}"
+            filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{uid}.png")
+            cv2.imwrite(filename, crop)
+            counter += 1
+
             if (is_traffic_light(crop)):
-                # Take pictures of traffic lights
-                # global counter
-                # uid = f"{int(time.time())}_{counter}_{uuid.uuid4().hex[:3]}"
-                # filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{uid}.png")
-                # cv2.imwrite(filename, crop)
-                # counter += 1
 
                 height, width, _ = crop.shape
 
@@ -259,13 +260,13 @@ if __name__=="__main__":
 
     # Spawn vehicle
     vehicle_bp  = blueprint_library.filter('vehicle.tesla.model3')[0]
-    spawn_point = world.get_map().get_spawn_points()[0]
+    spawn_point = world.get_map().get_spawn_points()[1]
 
     vehicle = world.spawn_actor(vehicle_bp, spawn_point)
 
     # Autopilot vehicle
     # TODO: replace with your own suggesting route model
-    vehicle.set_autopilot(False)
+    vehicle.set_autopilot(True)
 
     # Attach RGB camera
     camera_bp = blueprint_library.find('sensor.camera.rgb')
@@ -295,7 +296,7 @@ if __name__=="__main__":
     camera.listen(lambda image: process_image(image))
 
     # Let simulation run
-    time.sleep(5)
+    time.sleep(10)
 
     camera.stop()
     time.sleep(0.5)
