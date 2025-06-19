@@ -46,10 +46,10 @@ def classify_traffic_light(image_path):
     return classes[pred], probs.numpy()
 
 # --- 5. Example usage ---
-label1, confidence1 = classify_traffic_light("self_driving/simulator/logs/color_lights/bot_1749677830_0_d26.png")
-label2, confidence2 = classify_traffic_light("self_driving/simulator/logs/color_lights/bot_1749678089_0_844.png")
-label3, confidence3 = classify_traffic_light("self_driving/simulator/logs/color_lights/mid_1749677832_0_907.png")
-label4, confidence4 = classify_traffic_light("self_driving/simulator/logs/color_lights/top_1749677833_0_0f0.png")
+label1, confidence1 = classify_traffic_light("self_driving/data/color/black/bot_1749500375_0_8eb.png")
+label2, confidence2 = classify_traffic_light("self_driving/data/color/green/bot_1749430935_0_002.png")
+label3, confidence3 = classify_traffic_light("self_driving/data/color/red/top_1749431102_0_6b7.png")
+label4, confidence4 = classify_traffic_light("self_driving/data/color/yellow/mid_1749431426_0_0eb.png")
 print(f"Predicted: {label1}, Confidence: {confidence1}")
 print(f"Predicted: {label2}, Confidence: {confidence2}")
 print(f"Predicted: {label3}, Confidence: {confidence3}")
