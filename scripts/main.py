@@ -36,13 +36,13 @@ color_model.eval()
 
 transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 
-def classify_traffic_light(img):
+def classify_traffic_light(image):
     # Assume top_crop is a NumPy array from OpenCV (BGR)
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img_pil = Image.fromarray(img_rgb)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_pil = Image.fromarray(image_rgb)
 
     # Convert to PyTorch tensor with batch dimension
-    x = transform(img_pil).unsqueeze(0) # shape: [1, 3, 64, 64]
+    x = transform(image_pil).unsqueeze(0) # shape: [1, 3, 64, 64]
 
     with torch.no_grad():
         outputs = color_model(x)
@@ -50,7 +50,7 @@ def classify_traffic_light(img):
         if isinstance(outputs, (list, tuple)): outputs = outputs[0]  # Unpack the tensor if wrapped in a list/tuple
 
         probs = torch.softmax(outputs, dim=1)
-        pred = torch.argmax(probs, dim=1).item()
+        pred  = torch.argmax(probs, dim=1).item()
 
     classes = ['black', 'green', 'red', 'yellow']  # adjust to match your dataset class order
     return classes[pred], probs.numpy()
@@ -59,52 +59,39 @@ def classify_traffic_light(img):
 class ValidTrafficLightModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.model = nn.Sequential\
-        (
-            nn.Conv2d(3, 16, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
-            nn.Flatten(),
-            nn.Linear(32 * 16 * 16, 64), nn.ReLU(),
-            nn.Linear(64, 1), nn.Sigmoid()
-        )
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.pool  = nn.MaxPool2d(2, 2)
+        self.fc1   = nn.Linear(32 * 16 * 16, 64)
+        self.fc2   = nn.Linear(64, 1)
 
     def forward(self, x):
-        return self.model(x)
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 32 * 16 * 16)
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)
 
 # Load the model
 valid_light_model = ValidTrafficLightModel()
-valid_light_model.load_state_dict(torch.load("self_driving/simulator/models/is_traffic_light_model.pth", map_location='cpu'))
+valid_light_model.load_state_dict(torch.load("self_driving/simulator/models/valid_traffic_light_model.pth", map_location='cpu'))
 valid_light_model.eval()
 
 # Define transforms (must match training)
 transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 
 # Determine if yolo detected traffic light is facing toward our vehicle
-def is_traffic_light(img):
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img_pil = Image.fromarray(img_rgb)
-
-    x = transform(img_pil).unsqueeze(0)  # Add batch dim: [1, 3, 64, 64]
+def is_valid_traffic_light(image):
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_pil = Image.fromarray(image_rgb)
+    x         = transform(image_pil).unsqueeze(0)  # shape: [1, 3, 64, 64]
 
     with torch.no_grad():
-        outputs = valid_light_model(x)
-
-        if isinstance(outputs, (list, tuple)):
-            outputs = outputs[0]  # Unpack the tensor if wrapped in a list/tuple
-
-        probs = torch.softmax(outputs, dim=1)
-        predicted_class = torch.argmax(probs, dim=1).item()
-        confidence = probs[0][predicted_class].item()
-
-    # Define class names
-    class_names = ['false', 'true']
-    # TODO: produced result is incorrect, need to re-train model
-    # print(f"Prediction: {class_names[predicted_class]} (Confidence: {confidence:.2f})")
-    # return class_names[predicted_class]
-    return False
+        output = valid_light_model(x)
+        prob   = torch.sigmoid(output)
+        return prob.item() > 0.5
 
 # -----------------------------------------------------------------------------------------------------------------------
-
 # global variable
 # frame_count = 0 # for sensor tick
 counter     = 0 # for traffic light image capture
@@ -144,16 +131,17 @@ def process_image(image):
             crop = frame[y1:y2, x1:x2]
 
             # print("idx =", idx)
-            # print("-----------------is_traffic_light(crop)-----------------", is_traffic_light(crop))
+            # print("-----------------is_valid_traffic_light(crop)-----------------", is_valid_traffic_light(crop))
 
-            # Take pictures of traffic lights
-            global counter
-            uid = f"{int(time.time())}_{counter}_{uuid.uuid4().hex[:3]}"
-            filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{uid}.png")
-            cv2.imwrite(filename, crop)
-            counter += 1
+            # if (is_valid_traffic_light(crop)):
+            #     # Take pictures of traffic lights
+            #     global counter
+            #     uid = f"{int(time.time())}_{counter}_{uuid.uuid4().hex[:3]}"
+            #     filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{uid}.png")
+            #     cv2.imwrite(filename, crop)
+            #     counter += 1
 
-            if (is_traffic_light(crop)):
+            if (is_valid_traffic_light(crop)):
 
                 height, width, _ = crop.shape
 
@@ -217,6 +205,7 @@ def process_image(image):
                         log_lines.append(log_line)
 
     print("Reached Line", inspect.currentframe().f_lineno)
+    # exit(1)
 
     with open("self_driving/simulator/logs/output.txt", "a") as log_file:
         log_file.writelines(log_lines)
@@ -266,7 +255,7 @@ if __name__=="__main__":
 
     # Autopilot vehicle
     # TODO: replace with your own suggesting route model
-    vehicle.set_autopilot(True)
+    vehicle.set_autopilot(False)
 
     # Attach RGB camera
     camera_bp = blueprint_library.find('sensor.camera.rgb')
