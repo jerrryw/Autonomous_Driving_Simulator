@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
 
+# -----------------------------------------------------------------------------------------------------------------------
 class TrafficLightColorModel(nn.Module):
     def __init__(self):
         super(TrafficLightColorModel, self).__init__()
@@ -53,7 +54,7 @@ def classify_traffic_light(image):
         pred  = torch.argmax(probs, dim=1).item()
 
     classes = ['black', 'green', 'red', 'yellow']  # adjust to match your dataset class order
-    return classes[pred], probs.numpy()
+    return classes[pred] # , probs.numpy()
 
 # -----------------------------------------------------------------------------------------------------------------------
 class ValidTrafficLightModel(nn.Module):
@@ -92,7 +93,7 @@ def is_valid_traffic_light(image):
         return prob.item() > 0.5
 
 # -----------------------------------------------------------------------------------------------------------------------
-# global variable
+# global variables
 # frame_count = 0 # for sensor tick
 counter     = 0 # for traffic light image capture
 def process_image(image):
@@ -164,14 +165,19 @@ def process_image(image):
                 inferred_mid = classify_traffic_light(mid_crop)
                 inferred_bot = classify_traffic_light(bot_crop)
 
-                if (inferred_bot and inferred_mid) == "black":
+                print("inferred_top:", inferred_top)
+                print("inferred_mid:", inferred_mid)
+                print("inferred_bot:", inferred_bot)
+
+                if inferred_bot == "black" and inferred_mid == "black":
                     inferred_state = "red"
-                elif (inferred_bot and inferred_top) == "black":
+                elif inferred_bot == "black" and inferred_top == "black":
                     inferred_state = "yellow"
-                elif (inferred_top and inferred_mid) == "black":
+                elif inferred_top == "black" and inferred_mid == "black":
                     inferred_state = "green"
-                else:
-                    inferred_state = "unknown"
+                else: inferred_state = "unknown"
+
+                print("inferred_state:", inferred_state)
 
                 # Overlay label on annotated frame
                 label = f'{inferred_state}'
@@ -179,33 +185,37 @@ def process_image(image):
                 # cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
                 # Validate with CARLA API
-                # for light in world.get_actors().filter('traffic.traffic_light'):
-                #     if not light.is_alive or not vehicle.is_alive:
-                #         continue
-                #     try:
-                #         loc = light.get_transform().location
-                #         if vehicle.get_location().distance(loc) < 30:
-                #             true_state = light.state  # carla.TrafficLightState.Red etc.
-                #             log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
-                #             log_lines.append(log_line)
-                #             break
-                #     except RuntimeError:
-                #         continue
+                for light in world.get_actors().filter('traffic.traffic_light'):
+                    if not light.is_alive or not vehicle.is_alive:
+                        continue
+                    try:
+                        loc = light.get_transform().location
+                        if vehicle.get_location().distance(loc) < 30:
+                            true_state = light.state  # carla.TrafficLightState.Red etc.
+                            print("true_state:", true_state)
+                            # log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
+                            log_line = f'Inferred: {inferred_state}\n'
+                            log_lines.append(log_line)
+                            break
+                    except RuntimeError:
+                        continue
 
-                print("vehicle.is_at_traffic_light() = ", vehicle.is_at_traffic_light())
+                # print("vehicle.is_at_traffic_light() = ", vehicle.is_at_traffic_light())
 
                 # TODO: true_state is incorrect
-                if vehicle.is_at_traffic_light():
-                    traffic_light = vehicle.get_traffic_light()
-                    print("Reached Line", inspect.currentframe().f_lineno)
+                # if vehicle.is_at_traffic_light():
+                #     traffic_light = vehicle.get_traffic_light()
+                #     # print("Reached Line", inspect.currentframe().f_lineno)
 
-                    if traffic_light and traffic_light.is_alive:
-                        true_state = traffic_light.state
-                        log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
-                        log_lines.append(log_line)
+                #     if traffic_light and traffic_light.is_alive:
+                #         true_state = traffic_light.state
+                #         log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
+                #         log_lines.append(log_line)
 
+    # global counter
+    # counter += 1
     print("Reached Line", inspect.currentframe().f_lineno)
-    # exit(1)
+    # if (counter == 6): exit(1)
 
     with open("self_driving/simulator/logs/output.txt", "a") as log_file:
         log_file.writelines(log_lines)
@@ -285,7 +295,7 @@ if __name__=="__main__":
     camera.listen(lambda image: process_image(image))
 
     # Let simulation run
-    time.sleep(10)
+    time.sleep(30)
 
     camera.stop()
     time.sleep(0.5)
