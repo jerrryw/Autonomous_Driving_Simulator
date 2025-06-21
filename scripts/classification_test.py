@@ -23,7 +23,7 @@ class TrafficLightCNN(nn.Module):
 
 # --- 2. Load model and weights ---
 model = TrafficLightCNN()
-model.load_state_dict(torch.load("self_driving/simulator/models/model.pth", map_location=torch.device('cpu')))
+model.load_state_dict(torch.load("self_driving/simulator/models/traffic_light_color_model.pth", map_location=torch.device('cpu')))
 model.eval()
 
 # --- 3. Define preprocessing (same as training) ---
@@ -46,10 +46,10 @@ def classify_traffic_light(image_path):
     return classes[pred], probs.numpy()
 
 # --- 5. Example usage ---
-label1, confidence1 = classify_traffic_light("self_driving/simulator/logs/lights/bot_1749431059_0_42d.png")
-label2, confidence2 = classify_traffic_light("self_driving/simulator/logs/lights/bot_1749431102_0_20a.png")
-label3, confidence3 = classify_traffic_light("self_driving/simulator/logs/lights/mid_1749431426_0_0eb.png")
-label4, confidence4 = classify_traffic_light("self_driving/simulator/logs/lights/top_1749498535_0_047.png")
+label1, confidence1 = classify_traffic_light("self_driving/data/color/black/bot_1749500375_0_8eb.png")
+label2, confidence2 = classify_traffic_light("self_driving/data/color/green/bot_1749430935_0_002.png")
+label3, confidence3 = classify_traffic_light("self_driving/data/color/red/top_1749431102_0_6b7.png")
+label4, confidence4 = classify_traffic_light("self_driving/data/color/yellow/mid_1749431426_0_0eb.png")
 print(f"Predicted: {label1}, Confidence: {confidence1}")
 print(f"Predicted: {label2}, Confidence: {confidence2}")
 print(f"Predicted: {label3}, Confidence: {confidence3}")
