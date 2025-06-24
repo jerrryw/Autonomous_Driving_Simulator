@@ -15,9 +15,9 @@ import torch.nn.functional as F
 from torchvision import transforms
 
 # -----------------------------------------------------------------------------------------------------------------------
-class TrafficLightColorModel(nn.Module):
+class traffic_light_color_model(nn.Module):
     def __init__(self):
-        super(TrafficLightColorModel, self).__init__()
+        super(traffic_light_color_model, self).__init__()
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
         self.pool  = nn.MaxPool2d(2, 2)
@@ -31,7 +31,7 @@ class TrafficLightColorModel(nn.Module):
         x = F.relu(self.fc1(x))
         return self.fc2(x)
 
-color_model = TrafficLightColorModel()
+color_model = traffic_light_color_model()
 color_model.load_state_dict(torch.load("self_driving/simulator/models/traffic_light_color_model.pth", map_location=torch.device('cpu')))
 color_model.eval()
 
@@ -57,7 +57,7 @@ def classify_traffic_light(image):
     return classes[pred] # , probs.numpy()
 
 # -----------------------------------------------------------------------------------------------------------------------
-class ValidTrafficLightModel(nn.Module):
+class valid_traffic_light_model(nn.Module):
     def __init__(self):
         super().__init__()
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
@@ -74,7 +74,7 @@ class ValidTrafficLightModel(nn.Module):
         return self.fc2(x)
 
 # Load the model
-valid_light_model = ValidTrafficLightModel()
+valid_light_model = valid_traffic_light_model()
 valid_light_model.load_state_dict(torch.load("self_driving/simulator/models/valid_traffic_light_model.pth", map_location='cpu'))
 valid_light_model.eval()
 
@@ -115,8 +115,50 @@ def process_image(image):
 
     # TODO: Draw green trapezoid for route suggestion
     # Draw curved green path on copied frame (to be YOLO-processed), without permanently affect original frame
-
     frame_with_path = frame.copy()
+
+    # height, width = frame_with_path.shape[:2]
+    # mid_x = width // 2
+    # bottom_y = height
+
+    # # Vehicle yaw for curvature
+    # yaw_deg = vehicle.get_transform().rotation.yaw
+    # yaw_rad = np.deg2rad(yaw_deg)
+
+    # # Dynamic curvature effect (simulate turning)
+    # path_color = (0, 255, 0)
+    # segment_height = 10
+    # num_segments = 25
+    # base_width = width * 0.4  # bottom width
+    # top_width = width * 0.1   # tapering effect
+
+    # # Make list of segments
+    # polys = []
+    # for i in range(num_segments):
+    #     y_bot = bottom_y - i * segment_height
+    #     y_top = bottom_y - (i + 1) * segment_height
+
+    #     t = i / num_segments  # progress 0→1
+    #     width_bot = base_width * (1 - t)
+    #     width_top = base_width * (1 - (t + 1 / num_segments))
+
+    #     # Curve offset per segment (simulate left/right)
+    #     curvature = math.sin(yaw_rad) * (1 - t) * 100
+
+    #     # Shift midpoint with curvature
+    #     mid_shift = curvature
+
+    #     pt1 = [int(mid_x - width_top / 2 + mid_shift), int(y_top)]
+    #     pt2 = [int(mid_x + width_top / 2 + mid_shift), int(y_top)]
+    #     pt3 = [int(mid_x + width_bot / 2 + mid_shift), int(y_bot)]
+    #     pt4 = [int(mid_x - width_bot / 2 + mid_shift), int(y_bot)]
+
+    #     poly = np.array([pt1, pt2, pt3, pt4], dtype=np.int32)
+    #     polys.append(poly)
+
+    # # Draw all segments
+    # for poly in polys:
+    #     cv2.fillPoly(frame_with_path, [poly], color=path_color)
 
     # Run YOLO on the image with the path
     results   = yolo_model(frame_with_path)[0]
@@ -134,8 +176,8 @@ def process_image(image):
             # print("idx =", idx)
             # print("-----------------is_valid_traffic_light(crop)-----------------", is_valid_traffic_light(crop))
 
+            # Take pictures of traffic lights
             # if (is_valid_traffic_light(crop)):
-            #     # Take pictures of traffic lights
             #     global counter
             #     uid = f"{int(time.time())}_{counter}_{uuid.uuid4().hex[:3]}"
             #     filename = os.path.join("self_driving/simulator/logs/traffic_lights", f"traffic_light_{uid}.png")
@@ -193,7 +235,7 @@ def process_image(image):
                         if vehicle.get_location().distance(loc) < 30:
                             true_state = light.state  # carla.TrafficLightState.Red etc.
                             print("true_state:", true_state)
-                            # log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
+                            log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
                             log_line = f'Inferred: {inferred_state}\n'
                             log_lines.append(log_line)
                             break
@@ -212,10 +254,7 @@ def process_image(image):
                 #         log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
                 #         log_lines.append(log_line)
 
-    # global counter
-    # counter += 1
     print("Reached Line", inspect.currentframe().f_lineno)
-    # if (counter == 6): exit(1)
 
     with open("self_driving/simulator/logs/output.txt", "a") as log_file:
         log_file.writelines(log_lines)
@@ -246,11 +285,11 @@ def calculate_accuracy(path):
 if __name__=="__main__":
     # Connect to CARLA client
     client = carla.Client('localhost', 2000)
-    client.set_timeout(20.0)
+    client.set_timeout(10.0)
 
     # print(client.get_available_maps())
 
-    # world = client.load_world('Town10HD_Opt')
+    # world = client.load_world('Town03_Opt')
     # world = client.reload_world()
     world = client.get_world()
 
@@ -295,7 +334,7 @@ if __name__=="__main__":
     camera.listen(lambda image: process_image(image))
 
     # Let simulation run
-    time.sleep(30)
+    time.sleep(5)
 
     camera.stop()
     time.sleep(0.5)
@@ -310,5 +349,5 @@ if __name__=="__main__":
     print("    - Closing all cv2 windows")
     print("Finished Cleaning.")
 
-    print("\nCalculated Results")
-    calculate_accuracy("self_driving/simulator/logs/output.txt")
+    # print("\nCalculated Results")
+    # calculate_accuracy("self_driving/simulator/logs/output.txt")
