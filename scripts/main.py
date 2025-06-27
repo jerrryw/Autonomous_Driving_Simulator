@@ -296,15 +296,39 @@ if __name__=="__main__":
     # Get blueprint library
     blueprint_library = world.get_blueprint_library()
 
+    carla_map = world.get_map()
+
+    # destroy pre-existing vehicles
+    actors            = world.get_actors()
+    existing_vehicles = actors.filter('vehicle.*')
+
+    for vehicle in existing_vehicles:
+        if vehicle.is_alive:
+            try:
+                vehicle.destroy()
+            except:
+                pass
+
     # Spawn vehicle
     vehicle_bp  = blueprint_library.filter('vehicle.tesla.model3')[0]
-    spawn_point = world.get_map().get_spawn_points()[1]
+    spawn_point = carla_map.get_spawn_points()[0]
+    print(spawn_point)
 
     vehicle = world.spawn_actor(vehicle_bp, spawn_point)
 
+    # include start and destination for autopilot
+    start_location = spawn_point[0].location
+    end_location   = spawn_point[10].location
+
+    # print("spawn_point:", spawn_point)
+    # print("start_location:", start_location)
+    # print("end_location:", end_location)
+
+    # route = grp.trace_route(start_location, end_location)
+
     # Autopilot vehicle
     # TODO: replace with your own suggesting route model
-    vehicle.set_autopilot(False)
+    vehicle.set_autopilot(True)
 
     # Attach RGB camera
     camera_bp = blueprint_library.find('sensor.camera.rgb')
@@ -333,8 +357,24 @@ if __name__=="__main__":
     # Start streaming camera
     camera.listen(lambda image: process_image(image))
 
+    #TODO:
+    '''
+    1. Set up point A and point B
+    2. Autopilot from point A to point B
+    3. Find shortest path
+
+    Things need to know:
+        - need to know what lane we are in (i.e. direction)
+        - read stop sign?
+        - read traffic light
+        - read turning lanes
+        - avoid collision with other cars
+        - follow speed limit
+        - traffic scenarios (roundabouts, highway, one-way street)
+    '''
+
     # Let simulation run
-    time.sleep(5)
+    time.sleep(10)
 
     camera.stop()
     time.sleep(0.5)
