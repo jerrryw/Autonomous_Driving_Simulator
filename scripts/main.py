@@ -363,14 +363,21 @@ if __name__=="__main__":
     2. Autopilot from point A to point B
     3. Find shortest path
 
+    Unable to achieve
     Things need to know:
         - need to know what lane we are in (i.e. direction)
-        - read stop sign?
+        - read stop sign? and on floor
         - read traffic light
         - read turning lanes
         - avoid collision with other cars
         - follow speed limit
         - traffic scenarios (roundabouts, highway, one-way street)
+
+    More practical
+    Alternatively:
+        - Guided driving system?
+        - With user control, show suggesting route
+
     '''
 
     # Let simulation run
