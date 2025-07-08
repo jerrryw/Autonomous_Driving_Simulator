@@ -1,18 +1,53 @@
-import os
-import cv2
-import time
-import uuid
-import math
-import carla
-import inspect
-import numpy as np
-from PIL import Image
-from ultralytics import YOLO
+'''
 
+1. Set up point A and point B
+2. Autopilot from point A to point B
+3. Find shortest path
+
+Unable to achieve
+Things need to know:
+    - need to know what lane we are in (i.e. direction)
+    - read stop sign? and on floor
+    - read traffic light
+    - read turning lanes
+    - avoid collision with other cars
+    - follow speed limit
+    - traffic scenarios (roundabouts, highway, one-way street)
+
+More practical
+Alternatively:
+    - Guided driving system?
+    - With user control, show suggesting route
+
+
+New Goal:
+    - Map out route from origin to destination, follow route like AGV style
+    - Dynamically stop vehicle for traffic lights, signs, pedestrians, cars
+
+'''
+
+import carla
+import cv2
+import inspect
+import math
+import numpy as np
+import os
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import uuid
+
+from PIL import Image
+from ultralytics import YOLO
 from torchvision import transforms
+
+import sys
+sys.path.append("D:WindowsNoEditor/PythonAPI/carla")
+
+from agents.navigation.global_route_planner import GlobalRoutePlanner
+from agents.navigation.local_planner import RoadOption
+from agents.navigation.basic_agent import BasicAgent
 
 # -----------------------------------------------------------------------------------------------------------------------
 class traffic_light_color_model(nn.Module):
@@ -309,16 +344,56 @@ if __name__=="__main__":
             except:
                 pass
 
+    debug = world.debug
+
+    # Set resolution for planner (in meters)
+    sampling_resolution = 2.0
+
+    # Create the planner
+    planner = GlobalRoutePlanner(carla_map, sampling_resolution)
+
+    # Define start and end
+    start_location = carla_map.get_spawn_points()[0].location
+    end_location   = carla_map.get_spawn_points()[2].location
+
+    # Trace the route
+    route = planner.trace_route(start_location, end_location)
+
+    # Draw the route
+    for i in range(len(route) - 1):
+        wp, _ = route[i]
+        next_wp, _ = route[i + 1]
+        p1 = wp.transform.location + carla.Location(z=0.3)
+        p2 = next_wp.transform.location + carla.Location(z=0.3)
+        debug.draw_line(p1, p2, thickness=0.1, color=carla.Color(0, 255, 255), life_time=30.0)
+
+    print("Route drawn from start to end using GlobalRoutePlanner.")
+
     # Spawn vehicle
     vehicle_bp  = blueprint_library.filter('vehicle.tesla.model3')[0]
-    spawn_point = carla_map.get_spawn_points()[0]
-    print(spawn_point)
+    # spawn_point = carla_map.get_spawn_points()[0]
+    # print(spawn_point)
 
-    vehicle = world.spawn_actor(vehicle_bp, spawn_point)
+    vehicle = world.spawn_actor(vehicle_bp, start_location)
+
+    agent = BasicAgent(vehicle)
+    agent.set_destination(end_location)
+
+    while True:
+        if agent.done():
+            print("✅ Destination reached.")
+            break
+
+        control = agent.run_step()     # Compute throttle/brake/steer
+        # TODO: add process_image() here for identifying traffic
+        # replace run_step()?
+        vehicle.apply_control(control) # Apply control to the vehicle
+
+        world.tick()  # advance simulation
 
     # include start and destination for autopilot
-    start_location = spawn_point[0].location
-    end_location   = spawn_point[10].location
+    # start_location = spawn_point[0].location
+    # end_location   = spawn_point[10].location
 
     # print("spawn_point:", spawn_point)
     # print("start_location:", start_location)
@@ -328,7 +403,7 @@ if __name__=="__main__":
 
     # Autopilot vehicle
     # TODO: replace with your own suggesting route model
-    vehicle.set_autopilot(True)
+    # vehicle.set_autopilot(True)
 
     # Attach RGB camera
     camera_bp = blueprint_library.find('sensor.camera.rgb')
@@ -357,24 +432,9 @@ if __name__=="__main__":
     # Start streaming camera
     camera.listen(lambda image: process_image(image))
 
-    #TODO:
-    '''
-    1. Set up point A and point B
-    2. Autopilot from point A to point B
-    3. Find shortest path
-
-    Things need to know:
-        - need to know what lane we are in (i.e. direction)
-        - read stop sign?
-        - read traffic light
-        - read turning lanes
-        - avoid collision with other cars
-        - follow speed limit
-        - traffic scenarios (roundabouts, highway, one-way street)
-    '''
 
     # Let simulation run
-    time.sleep(10)
+    time.sleep(5)
 
     camera.stop()
     time.sleep(0.5)
