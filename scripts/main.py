@@ -43,7 +43,7 @@ from ultralytics import YOLO
 from torchvision import transforms
 
 import sys
-sys.path.append("D:WindowsNoEditor/PythonAPI/carla")  # <-- change this to your CARLA folder
+sys.path.append("D:WindowsNoEditor/PythonAPI/carla")
 
 from agents.navigation.global_route_planner import GlobalRoutePlanner
 from agents.navigation.local_planner import RoadOption
@@ -354,7 +354,7 @@ if __name__=="__main__":
 
     # Define start and end
     start_location = carla_map.get_spawn_points()[0].location
-    end_location   = carla_map.get_spawn_points()[12].location
+    end_location   = carla_map.get_spawn_points()[2].location
 
     # Trace the route
     route = planner.trace_route(start_location, end_location)
@@ -367,14 +367,14 @@ if __name__=="__main__":
         p2 = next_wp.transform.location + carla.Location(z=0.3)
         debug.draw_line(p1, p2, thickness=0.1, color=carla.Color(0, 255, 255), life_time=30.0)
 
-    print("✅ Route drawn from start to end using GlobalRoutePlanner.")
+    print("Route drawn from start to end using GlobalRoutePlanner.")
 
     # Spawn vehicle
     vehicle_bp  = blueprint_library.filter('vehicle.tesla.model3')[0]
-    spawn_point = carla_map.get_spawn_points()[0]
-    print(spawn_point)
+    # spawn_point = carla_map.get_spawn_points()[0]
+    # print(spawn_point)
 
-    vehicle = world.spawn_actor(vehicle_bp, spawn_point)
+    vehicle = world.spawn_actor(vehicle_bp, start_location)
 
     agent = BasicAgent(vehicle)
     agent.set_destination(end_location)
@@ -385,6 +385,8 @@ if __name__=="__main__":
             break
 
         control = agent.run_step()     # Compute throttle/brake/steer
+        # TODO: add process_image() here for identifying traffic
+        # replace run_step()?
         vehicle.apply_control(control) # Apply control to the vehicle
 
         world.tick()  # advance simulation
