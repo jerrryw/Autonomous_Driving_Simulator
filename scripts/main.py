@@ -289,7 +289,7 @@ def process_image(image):
                 #         log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
                 #         log_lines.append(log_line)
 
-    print("Reached Line", inspect.currentframe().f_lineno)
+    # print("Reached Line", inspect.currentframe().f_lineno)
 
     with open("self_driving/simulator/logs/output.txt", "a") as log_file:
         log_file.writelines(log_lines)
@@ -371,17 +371,19 @@ if __name__=="__main__":
 
     # Spawn vehicle
     vehicle_bp  = blueprint_library.filter('vehicle.tesla.model3')[0]
-    # spawn_point = carla_map.get_spawn_points()[0]
+
+    # must use spawn_point for vehicle spawning, without .location()
+    spawn_point = carla_map.get_spawn_points()[0]
     # print(spawn_point)
 
-    vehicle = world.spawn_actor(vehicle_bp, start_location)
+    vehicle = world.spawn_actor(vehicle_bp, spawn_point)
 
     agent = BasicAgent(vehicle)
     agent.set_destination(end_location)
 
     while True:
         if agent.done():
-            print("✅ Destination reached.")
+            print("Destination reached.")
             break
 
         control = agent.run_step()     # Compute throttle/brake/steer
