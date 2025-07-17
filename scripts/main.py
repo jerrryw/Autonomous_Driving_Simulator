@@ -129,7 +129,9 @@ def is_valid_traffic_light(image):
 
 # -----------------------------------------------------------------------------------------------------------------------
 def should_stop():
-    return inferred_state in ["red", "stop sign", "pedestrian"]  # extend as needed
+    print("inferred_state=", inferred_state)
+    return inferred_state == "red"  # extend as needed
+    # return inferred_state in ["red", "stop sign", "pedestrian"]  # extend as needed
 
 def compute_steering(vehicle, target_wp):
     veh_transform = vehicle.get_transform()
@@ -373,6 +375,9 @@ if __name__=="__main__":
 
     debug = world.debug
 
+    # for cleaning up
+    # exit(1)
+
     # Set resolution for planner (in meters)
     sampling_resolution = 2.0
 
@@ -381,7 +386,7 @@ if __name__=="__main__":
 
     # Define start and end
     start_location = carla_map.get_spawn_points()[0].location
-    end_location   = carla_map.get_spawn_points()[2].location
+    end_location   = carla_map.get_spawn_points()[10].location
 
     # Trace the route
     route = planner.trace_route(start_location, end_location)
@@ -435,6 +440,9 @@ if __name__=="__main__":
             print("Destination reached.")
             break
 
+        print(should_stop())
+
+        # exit(1)
         # Use YOLO output to decide if we should stop
         if should_stop():  # ← call this based on YOLO detection
             vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
@@ -488,7 +496,6 @@ if __name__=="__main__":
 
     # Start streaming camera
     camera.listen(lambda image: process_image(image))
-
 
     # Let simulation run
     time.sleep(5)
