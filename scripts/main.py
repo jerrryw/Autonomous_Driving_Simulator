@@ -32,6 +32,7 @@ import inspect
 import math
 import numpy as np
 import os
+import threading
 import time
 import torch
 import torch.nn as nn
@@ -129,8 +130,11 @@ def is_valid_traffic_light(image):
 
 # -----------------------------------------------------------------------------------------------------------------------
 def should_stop():
-    print("inferred_state=", inferred_state)
-    return inferred_state == "red"  # extend as needed
+    with state_lock:
+        state_copy = inferred_state
+    return state_copy == "red"
+    # print("inferred_state=", inferred_state)
+    # return inferred_state == "red"  # extend as needed
     # return inferred_state in ["red", "stop sign", "pedestrian"]  # extend as needed
 
 def compute_steering(vehicle, target_wp):
@@ -157,9 +161,11 @@ def compute_steering(vehicle, target_wp):
 # frame_count = 0 # for sensor tick
 counter        = 0 # for traffic light image capture
 inferred_state = "green"
+state_lock     = threading.Lock()
 
 def process_image(image):
     global inferred_state
+
     # Check if timestamps increment by 'sensor_tick' value and number of frames match
     # global frame_count
     # frame_count += 1
@@ -318,7 +324,8 @@ def process_image(image):
                 #         log_lines.append(log_line)
 
     # print("Reached Line", inspect.currentframe().f_lineno)
-    inferred_state = detected_state
+    with state_lock:
+        inferred_state = detected_state
 
     with open("self_driving/simulator/logs/output.txt", "a") as log_file:
         log_file.writelines(log_lines)
@@ -497,6 +504,7 @@ if __name__=="__main__":
     # Start streaming camera
     camera.listen(lambda image: process_image(image))
 
+
     # Let simulation run
     time.sleep(5)
 
@@ -504,13 +512,13 @@ if __name__=="__main__":
     time.sleep(0.5)
     print("\nCleaning up...")
     vehicle.destroy()
-    print("    - All Vehicles Destroyed")
+    print("  - All Vehicles Destroyed")
     camera.destroy()
-    print("    - Cameras Destroyed")
+    print("  - Cameras Destroyed")
     video_writer.release()
-    print("    - Video Output to yolo_detections.avi")
+    print("  - Video Output to yolo_detections.avi")
     cv2.destroyAllWindows()
-    print("    - Closing all cv2 windows")
+    print("  - Closing all cv2 windows")
     print("Finished Cleaning.")
 
     # print("\nCalculated Results")
