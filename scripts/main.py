@@ -32,6 +32,7 @@ import inspect
 import math
 import numpy as np
 import os
+import threading
 import time
 import torch
 import torch.nn as nn
@@ -46,8 +47,8 @@ import sys
 sys.path.append("D:WindowsNoEditor/PythonAPI/carla")
 
 from agents.navigation.global_route_planner import GlobalRoutePlanner
-from agents.navigation.local_planner import RoadOption
-from agents.navigation.basic_agent import BasicAgent
+# from agents.navigation.local_planner import RoadOption
+# from agents.navigation.basic_agent import BasicAgent
 
 # -----------------------------------------------------------------------------------------------------------------------
 class traffic_light_color_model(nn.Module):
@@ -128,10 +129,43 @@ def is_valid_traffic_light(image):
         return prob.item() > 0.5
 
 # -----------------------------------------------------------------------------------------------------------------------
+def should_stop():
+    with state_lock:
+        state_copy = inferred_state
+    return state_copy == "red"
+    # print("inferred_state=", inferred_state)
+    # return inferred_state == "red"  # extend as needed
+    # return inferred_state in ["red", "stop sign", "pedestrian"]  # extend as needed
+
+def compute_steering(vehicle, target_wp):
+    veh_transform = vehicle.get_transform()
+    veh_loc       = veh_transform.location
+    veh_yaw       = math.radians(veh_transform.rotation.yaw)
+
+    target_loc = target_wp.transform.location
+    dx         = target_loc.x - veh_loc.x
+    dy         = target_loc.y - veh_loc.y
+
+    # Compute angle between car forward vector and target vector
+    angle_to_target = math.atan2(dy, dx)
+    angle_diff      = angle_to_target - veh_yaw
+
+    # Normalize angle to [-pi, pi]
+    while angle_diff > math.pi: angle_diff -= 2 * math.pi
+    while angle_diff < -math.pi: angle_diff += 2 * math.pi
+
+    steer = angle_diff / math.radians(45)  # scale to [-1, 1]
+    return np.clip(steer, -1.0, 1.0)
+
 # global variables
 # frame_count = 0 # for sensor tick
-counter     = 0 # for traffic light image capture
+counter        = 0 # for traffic light image capture
+inferred_state = "green"
+state_lock     = threading.Lock()
+
 def process_image(image):
+    global inferred_state
+
     # Check if timestamps increment by 'sensor_tick' value and number of frames match
     # global frame_count
     # frame_count += 1
@@ -247,17 +281,17 @@ def process_image(image):
                 print("inferred_bot:", inferred_bot)
 
                 if inferred_bot == "black" and inferred_mid == "black":
-                    inferred_state = "red"
+                    detected_state = "red"
                 elif inferred_bot == "black" and inferred_top == "black":
-                    inferred_state = "yellow"
+                    detected_state = "yellow"
                 elif inferred_top == "black" and inferred_mid == "black":
-                    inferred_state = "green"
-                else: inferred_state = "unknown"
+                    detected_state = "green"
+                else: detected_state = "unknown"
 
-                print("inferred_state:", inferred_state)
+                print("detected_state:", detected_state)
 
                 # Overlay label on annotated frame
-                label = f'{inferred_state}'
+                label = f'{detected_state}'
                 # cv2.rectangle(annotated, (x1, y1), (x2, y2), (255, 0, 255), 2)
                 # cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
@@ -270,8 +304,8 @@ def process_image(image):
                         if vehicle.get_location().distance(loc) < 30:
                             true_state = light.state  # carla.TrafficLightState.Red etc.
                             print("true_state:", true_state)
-                            log_line = f'True: {true_state}, Inferred: {inferred_state}\n'
-                            log_line = f'Inferred: {inferred_state}\n'
+                            log_line = f'True: {true_state}, Inferred: {detected_state}\n'
+                            log_line = f'Inferred: {detected_state}\n'
                             log_lines.append(log_line)
                             break
                     except RuntimeError:
@@ -286,10 +320,12 @@ def process_image(image):
 
                 #     if traffic_light and traffic_light.is_alive:
                 #         true_state = traffic_light.state
-                #         log_line = f"True: {true_state}, Inferred: {inferred_state}\n"
+                #         log_line = f"True: {true_state}, Inferred: {detected_state}\n"
                 #         log_lines.append(log_line)
 
-    print("Reached Line", inspect.currentframe().f_lineno)
+    # print("Reached Line", inspect.currentframe().f_lineno)
+    with state_lock:
+        inferred_state = detected_state
 
     with open("self_driving/simulator/logs/output.txt", "a") as log_file:
         log_file.writelines(log_lines)
@@ -346,6 +382,9 @@ if __name__=="__main__":
 
     debug = world.debug
 
+    # for cleaning up
+    # exit(1)
+
     # Set resolution for planner (in meters)
     sampling_resolution = 2.0
 
@@ -354,7 +393,7 @@ if __name__=="__main__":
 
     # Define start and end
     start_location = carla_map.get_spawn_points()[0].location
-    end_location   = carla_map.get_spawn_points()[2].location
+    end_location   = carla_map.get_spawn_points()[10].location
 
     # Trace the route
     route = planner.trace_route(start_location, end_location)
@@ -371,23 +410,56 @@ if __name__=="__main__":
 
     # Spawn vehicle
     vehicle_bp  = blueprint_library.filter('vehicle.tesla.model3')[0]
-    # spawn_point = carla_map.get_spawn_points()[0]
+
+    # must use spawn_point for vehicle spawning, without .location()
+    spawn_point = carla_map.get_spawn_points()[0]
     # print(spawn_point)
 
-    vehicle = world.spawn_actor(vehicle_bp, start_location)
+    vehicle = world.spawn_actor(vehicle_bp, spawn_point)
 
-    agent = BasicAgent(vehicle)
-    agent.set_destination(end_location)
+    # Control using basic_agent.py
+    # agent = BasicAgent(vehicle)
+    # agent.set_destination(end_location)
 
-    while True:
-        if agent.done():
-            print("✅ Destination reached.")
+    # while True:
+    #     if agent.done():
+    #         print("Destination reached.")
+    #         break
+
+    #     control = agent.run_step()     # Compute throttle/brake/steer
+    #     # TODO: add process_image() here for identifying traffic
+    #     # replace run_step()?
+    #     vehicle.apply_control(control) # Apply control to the vehicle
+
+    current_idx = 0  # index in the route
+
+    while current_idx < len(route) - 1:
+        # Get current and next waypoint
+        wp, _      = route[current_idx]
+        next_wp, _ = route[current_idx + 1]
+
+        vehicle_loc  = vehicle.get_transform().location
+        next_loc     = next_wp.transform.location
+        dist_to_next = vehicle_loc.distance(next_loc)
+
+        # Stop condition if we reach the end of the route
+        if current_idx == len(route) - 2 and dist_to_next < 2.0:
+            print("Destination reached.")
             break
 
-        control = agent.run_step()     # Compute throttle/brake/steer
-        # TODO: add process_image() here for identifying traffic
-        # replace run_step()?
-        vehicle.apply_control(control) # Apply control to the vehicle
+        print(should_stop())
+
+        # exit(1)
+        # Use YOLO output to decide if we should stop
+        if should_stop():  # ← call this based on YOLO detection
+            vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+            print("Stopped due to traffic condition")
+        else:
+            steer = compute_steering(vehicle, next_wp)
+            vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer=steer, brake=0.0))
+
+            if dist_to_next < 2.0:
+                current_idx += 1  # advance to next waypoint
 
         world.tick()  # advance simulation
 
@@ -440,13 +512,13 @@ if __name__=="__main__":
     time.sleep(0.5)
     print("\nCleaning up...")
     vehicle.destroy()
-    print("    - All Vehicles Destroyed")
+    print("  - All Vehicles Destroyed")
     camera.destroy()
-    print("    - Cameras Destroyed")
+    print("  - Cameras Destroyed")
     video_writer.release()
-    print("    - Video Output to yolo_detections.avi")
+    print("  - Video Output to yolo_detections.avi")
     cv2.destroyAllWindows()
-    print("    - Closing all cv2 windows")
+    print("  - Closing all cv2 windows")
     print("Finished Cleaning.")
 
     # print("\nCalculated Results")
