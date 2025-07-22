@@ -48,7 +48,7 @@ sys.path.append("D:WindowsNoEditor/PythonAPI/carla")
 
 from agents.navigation.global_route_planner import GlobalRoutePlanner
 # from agents.navigation.local_planner import RoadOption
-# from agents.navigation.basic_agent import BasicAgent
+from agents.navigation.basic_agent import BasicAgent
 
 # -----------------------------------------------------------------------------------------------------------------------
 class traffic_light_color_model(nn.Module):
@@ -130,8 +130,7 @@ def is_valid_traffic_light(image):
 
 # -----------------------------------------------------------------------------------------------------------------------
 def should_stop():
-    with state_lock:
-        state_copy = inferred_state
+    state_copy = camera.listen(lambda image: process_image(image))
     return state_copy == "red"
     # print("inferred_state=", inferred_state)
     # return inferred_state == "red"  # extend as needed
@@ -260,9 +259,9 @@ def process_image(image):
                 # Divide vertically into three equal parts
                 div_parts = height // 3
 
-                top_crop = crop[0:div_parts          , :]
-                mid_crop = crop[div_parts:2*div_parts, :]
-                bot_crop = crop[2*div_parts:height   , :]
+                top_crop = crop[0          : div_parts  , :]
+                mid_crop = crop[div_parts  : 2*div_parts, :]
+                bot_crop = crop[2*div_parts: height     , :]
 
                 # # Unique ID per light crop
                 # uid = f"{int(time.time())}_{idx}_{uuid.uuid4().hex[:3]}"
@@ -324,8 +323,6 @@ def process_image(image):
                 #         log_lines.append(log_line)
 
     # print("Reached Line", inspect.currentframe().f_lineno)
-    with state_lock:
-        inferred_state = detected_state
 
     with open("self_driving/simulator/logs/output.txt", "a") as log_file:
         log_file.writelines(log_lines)
@@ -335,6 +332,8 @@ def process_image(image):
 
     # Save to video
     video_writer.write(annotated)
+
+    return detected_state
 
 def calculate_accuracy(path):
     total   = 0
@@ -430,38 +429,7 @@ if __name__=="__main__":
     #     # TODO: add process_image() here for identifying traffic
     #     # replace run_step()?
     #     vehicle.apply_control(control) # Apply control to the vehicle
-
-    current_idx = 0  # index in the route
-
-    while current_idx < len(route) - 1:
-        # Get current and next waypoint
-        wp, _      = route[current_idx]
-        next_wp, _ = route[current_idx + 1]
-
-        vehicle_loc  = vehicle.get_transform().location
-        next_loc     = next_wp.transform.location
-        dist_to_next = vehicle_loc.distance(next_loc)
-
-        # Stop condition if we reach the end of the route
-        if current_idx == len(route) - 2 and dist_to_next < 2.0:
-            print("Destination reached.")
-            break
-
-        print(should_stop())
-
-        # exit(1)
-        # Use YOLO output to decide if we should stop
-        if should_stop():  # ← call this based on YOLO detection
-            vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
-            print("Stopped due to traffic condition")
-        else:
-            steer = compute_steering(vehicle, next_wp)
-            vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer=steer, brake=0.0))
-
-            if dist_to_next < 2.0:
-                current_idx += 1  # advance to next waypoint
-
-        world.tick()  # advance simulation
+    #     world.tick()  # advance simulation
 
     # include start and destination for autopilot
     # start_location = spawn_point[0].location
@@ -501,9 +469,41 @@ if __name__=="__main__":
     fourcc         = cv2.VideoWriter_fourcc(*'XVID')
     video_writer   = cv2.VideoWriter(video_filename, fourcc, fps, frame_size)
 
-    # Start streaming camera
-    camera.listen(lambda image: process_image(image))
+    # current_idx = 0  # index in the route
 
+    # while current_idx < len(route) - 1:
+    #     # Get current and next waypoint
+    #     wp, _      = route[current_idx]
+    #     next_wp, _ = route[current_idx + 1]
+
+    #     vehicle_loc  = vehicle.get_transform().location
+    #     next_loc     = next_wp.transform.location
+    #     dist_to_next = vehicle_loc.distance(next_loc)
+
+    #     # Stop condition if we reach the end of the route
+    #     if current_idx == len(route) - 2 and dist_to_next < 2.0:
+    #         print("Destination reached.")
+    #         break
+
+    #     print(should_stop())
+
+    #     # exit(1)
+
+    #     # Use YOLO output to decide if we should stop
+    #     if should_stop():  # ← call this based on YOLO detection
+    #         vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+    #         print("Stopped due to traffic condition")
+    #     else:
+    #         steer = compute_steering(vehicle, next_wp)
+    #         vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer=steer, brake=0.0))
+
+    #         if dist_to_next < 2.0:
+    #             current_idx += 1  # advance to next waypoint
+
+    #     world.tick()  # advance simulation
+
+    # Start streaming camera
+    # camera.listen(lambda image: process_image(image))
 
     # Let simulation run
     time.sleep(5)
