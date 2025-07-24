@@ -469,38 +469,38 @@ if __name__=="__main__":
     fourcc         = cv2.VideoWriter_fourcc(*'XVID')
     video_writer   = cv2.VideoWriter(video_filename, fourcc, fps, frame_size)
 
-    # current_idx = 0  # index in the route
+    current_idx = 0  # index in the route
 
-    # while current_idx < len(route) - 1:
-    #     # Get current and next waypoint
-    #     wp, _      = route[current_idx]
-    #     next_wp, _ = route[current_idx + 1]
+    while current_idx < len(route) - 1:
+        # Get current and next waypoint
+        wp, _      = route[current_idx]
+        next_wp, _ = route[current_idx + 1]
 
-    #     vehicle_loc  = vehicle.get_transform().location
-    #     next_loc     = next_wp.transform.location
-    #     dist_to_next = vehicle_loc.distance(next_loc)
+        vehicle_loc  = vehicle.get_transform().location
+        next_loc     = next_wp.transform.location
+        dist_to_next = vehicle_loc.distance(next_loc)
 
-    #     # Stop condition if we reach the end of the route
-    #     if current_idx == len(route) - 2 and dist_to_next < 2.0:
-    #         print("Destination reached.")
-    #         break
+        # Stop condition if we reach the end of the route
+        if current_idx == len(route) - 2 and dist_to_next < 2.0:
+            print("Destination reached.")
+            break
 
-    #     print(should_stop())
+        # print(should_stop())
 
-    #     # exit(1)
+        # exit(1)
 
-    #     # Use YOLO output to decide if we should stop
-    #     if should_stop():  # ← call this based on YOLO detection
-    #         vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
-    #         print("Stopped due to traffic condition")
-    #     else:
-    #         steer = compute_steering(vehicle, next_wp)
-    #         vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer=steer, brake=0.0))
+        # Use YOLO output to decide if we should stop
+        if should_stop():  # ← call this based on YOLO detection
+            vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
+            print("Stopped due to traffic condition")
+        else:
+            steer = compute_steering(vehicle, next_wp)
+            vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer=steer, brake=0.0))
 
-    #         if dist_to_next < 2.0:
-    #             current_idx += 1  # advance to next waypoint
+            if dist_to_next < 2.0:
+                current_idx += 1  # advance to next waypoint
 
-    #     world.tick()  # advance simulation
+        world.tick()  # advance simulation
 
     # Start streaming camera
     # camera.listen(lambda image: process_image(image))
