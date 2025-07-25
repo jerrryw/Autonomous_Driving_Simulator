@@ -38,6 +38,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import uuid
+import queue
 
 from PIL import Image
 from ultralytics import YOLO
@@ -129,42 +130,34 @@ def is_valid_traffic_light(image):
         return prob.item() > 0.5
 
 # -----------------------------------------------------------------------------------------------------------------------
-def should_stop():
-    state_copy = camera.listen(lambda image: process_image(image))
-    return state_copy == "red"
+# def should_stop():
+#     state_copy = camera.listen(lambda image: process_image(image))
+#     return state_copy == "red"
     # print("inferred_state=", inferred_state)
     # return inferred_state == "red"  # extend as needed
     # return inferred_state in ["red", "stop sign", "pedestrian"]  # extend as needed
 
 def compute_steering(vehicle, target_wp):
-    veh_transform = vehicle.get_transform()
-    veh_loc       = veh_transform.location
-    veh_yaw       = math.radians(veh_transform.rotation.yaw)
+    vehicle_transform = vehicle.get_transform()
+    loc = vehicle_transform.location
+    yaw = math.radians(vehicle_transform.rotation.yaw)
 
     target_loc = target_wp.transform.location
-    dx         = target_loc.x - veh_loc.x
-    dy         = target_loc.y - veh_loc.y
+    dx = target_loc.x - loc.x
+    dy = target_loc.y - loc.y
 
-    # Compute angle between car forward vector and target vector
     angle_to_target = math.atan2(dy, dx)
-    angle_diff      = angle_to_target - veh_yaw
+    angle_diff = angle_to_target - yaw
 
-    # Normalize angle to [-pi, pi]
     while angle_diff > math.pi: angle_diff -= 2 * math.pi
     while angle_diff < -math.pi: angle_diff += 2 * math.pi
 
-    steer = angle_diff / math.radians(45)  # scale to [-1, 1]
-    return np.clip(steer, -1.0, 1.0)
+    return max(-1.0, min(1.0, angle_diff / math.radians(45)))
 
 # global variables
 # frame_count = 0 # for sensor tick
 counter        = 0 # for traffic light image capture
-inferred_state = "green"
-state_lock     = threading.Lock()
-
 def process_image(image):
-    global inferred_state
-
     # Check if timestamps increment by 'sensor_tick' value and number of frames match
     # global frame_count
     # frame_count += 1
@@ -295,20 +288,20 @@ def process_image(image):
                 # cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
                 # Validate with CARLA API
-                for light in world.get_actors().filter('traffic.traffic_light'):
-                    if not light.is_alive or not vehicle.is_alive:
-                        continue
-                    try:
-                        loc = light.get_transform().location
-                        if vehicle.get_location().distance(loc) < 30:
-                            true_state = light.state  # carla.TrafficLightState.Red etc.
-                            print("true_state:", true_state)
-                            log_line = f'True: {true_state}, Inferred: {detected_state}\n'
-                            log_line = f'Inferred: {detected_state}\n'
-                            log_lines.append(log_line)
-                            break
-                    except RuntimeError:
-                        continue
+                # for light in world.get_actors().filter('traffic.traffic_light'):
+                #     if not light.is_alive or not vehicle.is_alive:
+                #         continue
+                #     try:
+                #         loc = light.get_transform().location
+                #         if vehicle.get_location().distance(loc) < 30:
+                #             true_state = light.state  # carla.TrafficLightState.Red etc.
+                #             print("true_state:", true_state)
+                #             log_line = f'True: {true_state}, Inferred: {detected_state}\n'
+                #             log_line = f'Inferred: {detected_state}\n'
+                #             log_lines.append(log_line)
+                #             break
+                #     except RuntimeError:
+                #         continue
 
                 # print("vehicle.is_at_traffic_light() = ", vehicle.is_at_traffic_light())
 
@@ -324,8 +317,8 @@ def process_image(image):
 
     # print("Reached Line", inspect.currentframe().f_lineno)
 
-    with open("self_driving/simulator/logs/output.txt", "a") as log_file:
-        log_file.writelines(log_lines)
+    # with open("self_driving/simulator/logs/output.txt", "a") as log_file:
+    #     log_file.writelines(log_lines)
 
     # Show window
     # cv2.imshow("results", annotated)
@@ -469,9 +462,24 @@ if __name__=="__main__":
     fourcc         = cv2.VideoWriter_fourcc(*'XVID')
     video_writer   = cv2.VideoWriter(video_filename, fourcc, fps, frame_size)
 
+    image_queue = queue.Queue()
+
+    def image_callback(image):
+        image_queue.put(image)
+
+    camera.listen(image_callback)
+
     current_idx = 0  # index in the route
+    inferred_state = "green"  # initial fallback
 
     while current_idx < len(route) - 1:
+        # Read image if available
+        if not image_queue.empty():
+            image = image_queue.get()
+            inferred_state = process_image(image)
+
+        print("\ninferred_state = ", inferred_state)
+
         # Get current and next waypoint
         wp, _      = route[current_idx]
         next_wp, _ = route[current_idx + 1]
@@ -485,20 +493,15 @@ if __name__=="__main__":
             print("Destination reached.")
             break
 
-        # print(should_stop())
+        if dist_to_next < 2.0:
+            current_idx += 1
 
-        # exit(1)
-
-        # Use YOLO output to decide if we should stop
-        if should_stop():  # ← call this based on YOLO detection
+        if inferred_state == "red":
             vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0))
-            print("Stopped due to traffic condition")
+            print("RED LIGHT detected -> braking.")
         else:
             steer = compute_steering(vehicle, next_wp)
             vehicle.apply_control(carla.VehicleControl(throttle=0.5, steer=steer, brake=0.0))
-
-            if dist_to_next < 2.0:
-                current_idx += 1  # advance to next waypoint
 
         world.tick()  # advance simulation
 
